@@ -49,7 +49,7 @@ def translate_task(
     if "prompt" in args:
         args["prompt"] = Template(args["prompt"])
 
-    doc_mono, doc_dual = translate_stream(
+    doc_mono, doc_dual, _ = translate_stream(
         stream,
         callback=progress_bar,
         model=ModelInstance.value,
