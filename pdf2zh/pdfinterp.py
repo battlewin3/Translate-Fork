@@ -143,6 +143,7 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
 
     def do_F(self) -> None:
         """Fill path using nonzero winding number rule (obsolete)"""
+        self.curpath = []
 
     def do_f_a(self) -> None:
         """Fill path using even-odd rule"""
@@ -163,8 +164,8 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
     # 重载返回调用参数（SCN）
     def do_SCN(self) -> None:
         """Set color for stroking operations."""
-        if self.scs:
-            n = self.scs.ncomponents
+        if self.graphicstate.scs:
+            n = self.graphicstate.scs.ncomponents
         else:
             if settings.STRICT:
                 raise PDFInterpreterError("No colorspace specified!")
@@ -175,8 +176,8 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
 
     def do_scn(self) -> None:
         """Set color for nonstroking operations"""
-        if self.ncs:
-            n = self.ncs.ncomponents
+        if self.graphicstate.ncs:
+            n = self.graphicstate.ncs.ncomponents
         else:
             if settings.STRICT:
                 raise PDFInterpreterError("No colorspace specified!")
@@ -224,8 +225,8 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
                 [xobj],
                 ctm=ctm,
             )
-            self.ncs = interpreter.ncs
-            self.scs = interpreter.scs
+            self.graphicstate.ncs = interpreter.graphicstate.ncs
+            self.graphicstate.scs = interpreter.graphicstate.scs
             try:  # 有的时候 form 字体加不上这里会烂掉
                 self.device.fontid = interpreter.fontid
                 self.device.fontmap = interpreter.fontmap

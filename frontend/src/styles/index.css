@@ -1,18 +1,47 @@
 @import "tailwindcss";
 
 @theme {
+  /* Brand */
   --color-brand: #165DFF;
   --color-brand-deep: #0E42D2;
   --color-brand-light: #E8F3FF;
+
+  /* Surface tokens - light mode */
   --color-surface: #F8FAFC;
-  --color-card: #FFFFFF;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-overlay: #FFFFFF;
+
+  /* Border */
   --color-border: #E2E8F0;
+  --color-border-focus: #165DFF;
+
+  /* Text */
   --color-text-primary: #1E293B;
   --color-text-secondary: #64748B;
+  --color-text-tertiary: #94A3B8;
+
+  /* Semantic */
   --color-success: #16A34A;
+  --color-success-light: #DCFCE7;
   --color-error: #DC2626;
+  --color-error-light: #FEE2E2;
+  --color-warning: #D97706;
+  --color-warning-light: #FEF3C7;
+
+  /* Typography */
   --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+
+  /* Layout */
+  --toolbar-height: 56px;
+
+  /* Animation */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
 }
+
+/* ===== Base ===== */
 
 body {
   font-family: var(--font-sans);
@@ -22,10 +51,97 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
+/* ===== Dark Mode ===== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: #09090B;
+    --color-surface-elevated: #18181B;
+    --color-surface-overlay: #27272A;
+    --color-border: #27272A;
+    --color-border-focus: #3D7FFF;
+    --color-text-primary: #F4F4F5;
+    --color-text-secondary: #A1A1AA;
+    --color-text-tertiary: #71717A;
+    --color-brand: #3D7FFF;
+    --color-brand-deep: #165DFF;
+    --color-brand-light: #1E293B;
+    --color-success: #22C55E;
+    --color-success-light: #052E16;
+    --color-error: #EF4444;
+    --color-error-light: #450A0A;
+    --color-warning: #F59E0B;
+    --color-warning-light: #451A03;
+  }
+
+  body {
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+  }
+}
+
+/* Manual dark mode class (overrides media query) */
+html.dark {
+  --color-surface: #09090B;
+  --color-surface-elevated: #18181B;
+  --color-surface-overlay: #27272A;
+  --color-border: #27272A;
+  --color-border-focus: #3D7FFF;
+  --color-text-primary: #F4F4F5;
+  --color-text-secondary: #A1A1AA;
+  --color-text-tertiary: #71717A;
+  --color-brand: #3D7FFF;
+  --color-brand-deep: #165DFF;
+  --color-brand-light: #1E293B;
+  --color-success: #22C55E;
+  --color-success-light: #052E16;
+  --color-error: #EF4444;
+  --color-error-light: #450A0A;
+  --color-warning: #F59E0B;
+  --color-warning-light: #451A03;
+}
+
+html.dark body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+/* Manual light mode class (overrides media query) */
+html.light {
+  --color-surface: #F8FAFC;
+  --color-surface-elevated: #FFFFFF;
+  --color-surface-overlay: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-border-focus: #165DFF;
+  --color-text-primary: #1E293B;
+  --color-text-secondary: #64748B;
+  --color-text-tertiary: #94A3B8;
+  --color-brand: #165DFF;
+  --color-brand-deep: #0E42D2;
+  --color-brand-light: #E8F3FF;
+  --color-success: #16A34A;
+  --color-success-light: #DCFCE7;
+  --color-error: #DC2626;
+  --color-error-light: #FEE2E2;
+  --color-warning: #D97706;
+  --color-warning-light: #FEF3C7;
+}
+
+html.light body {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+/* Theme transition */
+body {
+  transition: background-color 300ms var(--ease-out-expo), color 300ms var(--ease-out-expo);
+}
+
+/* ===== Scrollbar ===== */
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -33,10 +149,148 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
+  background: var(--color-border);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--color-text-tertiary);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* ===== Reduced Motion ===== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== Focus ===== */
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ===== Utility ===== */
+
+@utility scroll-thin {
+  scrollbar-width: thin;
+}
+
+/* ===== Reusable Animations ===== */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 250ms var(--ease-out-expo) forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 300ms var(--ease-out-expo) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 200ms var(--ease-out-expo) forwards;
+}
+
+/* ===== Dialog ===== */
+
+/* Restore centering that Tailwind preflight's `* { margin: 0 }` strips.
+   Only override margin — let the dialog's own Tailwind classes handle sizing. */
+dialog[open] {
+  margin: auto;
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.animate-dialog-in {
+  animation: dialog-in 200ms var(--ease-out-expo) forwards;
+}
+
+/* ===== Layout Shell ===== */
+
+.app-shell {
+  display: grid;
+  grid-template-rows: var(--toolbar-height) 1fr;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ===== Settings Panel Animation ===== */
+
+@keyframes panel-slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes panel-slide-out {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+@keyframes backdrop-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes backdrop-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.animate-panel-in {
+  animation: panel-slide-in 250ms var(--ease-out-expo) forwards;
+}
+
+.animate-panel-out {
+  animation: panel-slide-out 200ms var(--ease-out-expo) forwards;
+}
+
+.animate-backdrop-in {
+  animation: backdrop-fade-in 200ms var(--ease-out-expo) forwards;
+}
+
+.animate-backdrop-out {
+  animation: backdrop-fade-out 200ms var(--ease-out-expo) forwards;
+}
+
+/* ===== Toolbar ===== */
+
+.toolbar-btn {
+  @apply flex items-center justify-center w-9 h-9 rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors cursor-pointer;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+  flex-shrink: 0;
 }

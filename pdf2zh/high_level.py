@@ -168,6 +168,41 @@ def translate_patch(
     return obj_patch
 
 
+def create_side_by_side(
+    doc_original: "Document",
+    doc_translated: "Document",
+    page_count: int,
+) -> bytes:
+    """
+    Create a side-by-side PDF where each page contains the original
+    on the LEFT half and the translation on the RIGHT half of the SAME page.
+
+    Uses pymupdf's Page.show_pdf_page() for high-fidelity page embedding
+    that preserves all vector graphics, fonts, and embedded images.
+    """
+    import fitz  # pymupdf
+
+    # Use translated doc's first page dimensions as reference
+    single_width = doc_translated[0].rect.width
+    single_height = doc_translated[0].rect.height
+
+    # Create a new document with double-width pages
+    side_doc = fitz.open()
+    left_rect = fitz.Rect(0, 0, single_width, single_height)
+    right_rect = fitz.Rect(single_width, 0, single_width * 2, single_height)
+    for i in range(page_count):
+        new_page = side_doc.new_page(
+            width=single_width * 2,
+            height=single_height,
+        )
+        # Place original page on LEFT half
+        new_page.show_pdf_page(left_rect, doc_original, i)
+        # Place translated page on RIGHT half
+        new_page.show_pdf_page(right_rect, doc_translated, i)
+
+    return side_doc.write(deflate=True, garbage=3, use_objstms=1)
+
+
 def translate_stream(
     stream: bytes,
     pages: Optional[list[int]] = None,
@@ -184,6 +219,7 @@ def translate_stream(
     prompt: Template = None,
     skip_subset_fonts: bool = False,
     ignore_cache: bool = False,
+    output_mode: str = "mono_dual",
     **kwarg: Any,
 ):
     font_list = [("tiro", None)]
@@ -240,6 +276,11 @@ def translate_stream(
         # print(ops_new.encode())
         doc_zh.update_stream(obj_id, ops_new.encode())
 
+    # Generate side-by-side PDF before subset_fonts so all docs benefit
+    side_bytes = None
+    if output_mode and "side" in output_mode.lower():
+        side_bytes = create_side_by_side(doc_en, doc_zh, page_count)
+
     doc_en.insert_file(doc_zh)
     for id in range(page_count):
         doc_en.move_page(page_count + id, id * 2 + 1)
@@ -249,6 +290,7 @@ def translate_stream(
     return (
         doc_zh.write(deflate=True, garbage=3, use_objstms=1),
         doc_en.write(deflate=True, garbage=3, use_objstms=1),
+        side_bytes,
     )
 
 
@@ -319,6 +361,7 @@ def translate(
     prompt: Template = None,
     skip_subset_fonts: bool = False,
     ignore_cache: bool = False,
+    output_mode: str = "mono_dual",
     **kwarg: Any,
 ):
     if not files:
@@ -390,7 +433,7 @@ def translate(
         except Exception:
             logger.warning(f"Failed to clean temp file {file_path}", exc_info=True)
 
-        s_mono, s_dual = translate_stream(
+        s_mono, s_dual, s_side = translate_stream(
             s_raw,
             **locals(),
         )
@@ -402,7 +445,14 @@ def translate(
         doc_dual.write(s_dual)
         doc_mono.close()
         doc_dual.close()
-        result_files.append((str(file_mono), str(file_dual)))
+
+        file_side = None
+        if s_side is not None:
+            file_side = Path(output) / f"{filename}-side.pdf"
+            with open(file_side, "wb") as f:
+                f.write(s_side)
+
+        result_files.append((str(file_mono), str(file_dual), str(file_side) if file_side else None))
 
     return result_files
 

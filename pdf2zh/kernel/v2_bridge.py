@@ -154,6 +154,9 @@ def request_to_cli_args(request: Any) -> list[str]:
         args.extend(["--custom-system-prompt", data["prompt"]])
     if data.get("ignore_cache"):
         args.append("--ignore-cache")
+    if data.get("output_mode") and "side" in str(data["output_mode"]).lower():
+        args.append("--output-mode")
+        args.append("side_by_side")
 
     return args
 

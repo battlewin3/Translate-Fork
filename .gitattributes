@@ -1,0 +1,15 @@
+# Windows batch files MUST have CRLF endings
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts MUST have LF endings
+*.sh text eol=lf
+
+# General
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf

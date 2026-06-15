@@ -1,52 +1,85 @@
+import { useTranslateState } from '../hooks/useTranslateState';
 import { T } from '../i18n/zh';
 
-interface ProgressIndicatorProps {
-  progress: number;
-  desc: string;
-  status: 'idle' | 'translating' | 'complete' | 'cancelled' | 'failed';
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-const statusLabels: Record<string, string> = {
-  translating: T.translating,
-  complete: T.complete,
-  cancelled: T.cancelled,
-  failed: T.failed,
-};
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'uploading': return T.uploading;
+    case 'validating': return T.starting;
+    case 'translating': return T.translating;
+    case 'completed': return T.complete;
+    case 'cancelled': return T.cancelled;
+    case 'failed': return T.failed;
+    default: return '';
+  }
+}
 
-const statusColors: Record<string, string> = {
-  translating: 'from-brand to-blue-400',
-  complete: 'from-success to-emerald-400',
-  failed: 'from-error to-red-400',
-  cancelled: 'from-slate-400 to-slate-500',
-};
+function barColor(status: string): string {
+  switch (status) {
+    case 'completed': return 'bg-[var(--color-success)]';
+    case 'failed': return 'bg-[var(--color-error)]';
+    case 'cancelled': return 'bg-[var(--color-text-tertiary)]';
+    default: return 'bg-[var(--color-brand)]';
+  }
+}
 
-export default function ProgressIndicator({ progress, desc, status }: ProgressIndicatorProps) {
+function textColor(status: string): string {
+  switch (status) {
+    case 'completed': return 'text-[var(--color-success)]';
+    case 'failed': return 'text-[var(--color-error)]';
+    case 'cancelled': return 'text-[var(--color-text-tertiary)]';
+    default: return 'text-[var(--color-brand)]';
+  }
+}
+
+export default function ProgressIndicator() {
+  const state = useTranslateState();
+  const { status, progress, progressDesc, elapsedSeconds } = state;
+
   if (status === 'idle') return null;
 
   const pct = Math.min(100, Math.max(0, Math.round(progress * 100)));
+  const eta = pct > 0 && pct < 100 && elapsedSeconds > 0
+    ? Math.round((elapsedSeconds / pct) * (100 - pct))
+    : null;
 
   return (
-    <div className="space-y-2">
+    <div className="animate-slide-up space-y-2">
       <div className="flex items-center justify-between text-xs">
-        <span className={`font-medium ${
-          status === 'failed' ? 'text-error' :
-          status === 'complete' ? 'text-success' :
-          status === 'cancelled' ? 'text-slate-500' :
-          'text-brand'
-        }`}>
-          {statusLabels[status] || status}
+        <span className={`font-medium ${textColor(status)}`}>
+          {statusLabel(status)}
         </span>
-        <span className="text-slate-500 tabular-nums">{pct}%</span>
+        <span className="text-[var(--color-text-secondary)] tabular-nums">{pct}%</span>
       </div>
-      <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+      <div
+        className="h-2 bg-[var(--color-border)] rounded-full overflow-hidden"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={T.progress}
+      >
         <div
-          className={`h-full bg-gradient-to-r ${statusColors[status] || 'from-brand to-blue-400'} rounded-full transition-all duration-300 ease-out`}
+          className={`h-full ${barColor(status)} rounded-full transition-[width] duration-300 ease-out`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      {desc && (
-        <p className="text-xs text-slate-500 truncate">{desc}</p>
-      )}
+      <div className="flex items-center justify-between text-[11px] text-[var(--color-text-tertiary)]">
+        <span className="truncate mr-2">{progressDesc}</span>
+        <div className="flex items-center gap-3 shrink-0 tabular-nums">
+          {elapsedSeconds > 0 && (
+            <span title={T.elapsedTime}>{formatTime(elapsedSeconds)}</span>
+          )}
+          {eta !== null && (
+            <span title={T.estimatedTime}>~{formatTime(eta)}</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

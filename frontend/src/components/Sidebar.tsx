@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
-import { T } from '../i18n/zh';
-import { startTranslation, cancelJob, fetchServices, getJobStatus, getProgressUrl, type Service } from '../api/client';
-import { useSSE } from '../hooks/useSSE';
-import type { TranslateState, OutputMode, PageRangePreset, TranslateMode, FileInputType } from '../hooks/useTranslate';
-import FileUpload from './FileUpload';
-import URLInput from './URLInput';
+import { useState } from 'react';
+import { useTranslateState } from '../hooks/useTranslateState';
+import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
+import { useTranslation } from '../hooks/useTranslation';
+import { useJobHistory } from '../hooks/useJobHistory';
+import { clearPreferences } from '../utils/preferences';
 import ServiceSelector from './ServiceSelector';
 import EnvKeyInputs from './EnvKeyInputs';
 import LanguagePicker from './LanguagePicker';
@@ -14,252 +13,205 @@ import AdvancedOptions from './AdvancedOptions';
 import TranslateButton from './TranslateButton';
 import ProgressIndicator from './ProgressIndicator';
 import DownloadPanel from './DownloadPanel';
+import CollapsibleSection from './CollapsibleSection';
+import { ErrorBanner } from './ErrorBanner';
+import { CancelConfirmDialog } from './CancelConfirmDialog';
+import { ThemeToggle } from './ThemeToggle';
 import Footer from './Footer';
+import { testService } from '../api/client';
+import { T } from '../i18n/zh';
 
 interface SidebarProps {
-  state: TranslateState;
-  set: <K extends keyof TranslateState>(key: K, value: TranslateState[K]) => void;
-  updateEnv: (key: string, value: string) => void;
+  onHistoryOpen: () => void;
+  hasHistory: boolean;
 }
 
-export default function Sidebar({ state, set, updateEnv }: SidebarProps) {
-  const [serviceMeta, setServiceMeta] = useState<Service | null>(null);
-  const [sseUrl, setSseUrl] = useState<string | null>(null);
+export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
+  const state = useTranslateState();
+  const dispatch = useTranslateDispatch();
+  const { start, cancel, confirmCancel, dismissCancel, retry, cancelRequested } = useTranslation();
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
-  // 加载服务元数据判断是否显示自定义 prompt
-  useEffect(() => {
-    fetchServices().then((services) => {
-      const svc = services.find((s) => s.name === state.service);
-      setServiceMeta(svc || null);
-    }).catch(() => setServiceMeta(null));
-  }, [state.service]);
+  const hasFile = !!(state.file || state.url);
+  const isTranslating = state.status === 'uploading' || state.status === 'translating' || state.status === 'validating';
+  const isComplete = state.status === 'completed';
 
-  const handleProgressMessage = (data: { progress: number; desc: string; status: string }) => {
-    set('progress', data.progress);
-    set('progressDesc', data.desc);
-    if (data.status === 'complete' || data.status === 'cancelled' || data.status === 'failed') {
-      set('status', data.status as TranslateState['status']);
-      setSseUrl(null);
-      // 获取最终状态以得到文件列表
-      if (state.jobId) {
-        getJobStatus(state.jobId).then((jobStatus) => {
-          set('resultFiles', jobStatus.files);
-        }).catch(() => {});
-      }
-    }
-  };
+  const fileLabel = state.file
+    ? state.file.name
+    : state.url
+      ? (state.url.split('/').pop() || '在线文档')
+      : null;
 
-  const handleSSEError = (error: string) => {
-    set('error', error);
-    set('status', 'failed');
-  };
-
-  const { stop: stopSSE } = useSSE({
-    url: sseUrl,
-    onMessage: handleProgressMessage,
-    onError: handleSSEError,
-  });
-
-  const handleTranslate = async () => {
-    if (!state.file && !state.url) {
-      set('error', T.noFile);
-      return;
-    }
-
-    set('error', null);
-    set('status', 'translating');
-    set('progress', 0);
-    set('progressDesc', T.starting);
-
-    try {
-      const formData = new FormData();
-      if (state.fileInputType === 'file' && state.file) {
-        formData.append('file', state.file);
-      } else if (state.fileInputType === 'url' && state.url) {
-        formData.append('file', state.url);
-      }
-      formData.append('service', state.service);
-      formData.append('lang_from', state.langFrom);
-      formData.append('lang_to', state.langTo);
-      formData.append('output_mode', state.outputMode);
-
-      if (state.pageRange === 'custom' && state.customPages) {
-        formData.append('custom_pages', state.customPages);
-      } else if (state.pageRange !== 'all') {
-        formData.append('page_range', state.pageRange);
-      }
-
-      formData.append('threads', String(state.threads));
-      formData.append('skip_subset_fonts', String(state.skipSubsetFonts));
-      formData.append('ignore_cache', String(state.ignoreCache));
-      formData.append('vfont', state.vfont);
-      formData.append('prompt', state.customPrompt);
-      formData.append('mode', state.translateMode);
-
-      if (Object.keys(state.envs).length > 0) {
-        formData.append('envs_json', JSON.stringify(state.envs));
-      }
-
-      const result = await startTranslation(formData);
-      set('jobId', result.job_id);
-
-      // 启动 SSE 连接
-      setSseUrl(getProgressUrl(result.job_id));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '翻译启动失败';
-      set('error', message);
-      set('status', 'failed');
-    }
-  };
-
-  const handleCancel = async () => {
-    if (state.jobId) {
-      try {
-        stopSSE();
-        setSseUrl(null);
-        await cancelJob(state.jobId);
-        set('status', 'cancelled');
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : '取消失败';
-        set('error', message);
-      }
-    }
-  };
-
-  const canTranslate = state.status !== 'translating' && (!!state.file || (state.fileInputType === 'url' && !!state.url.trim()));
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   return (
-    <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-4 p-4 lg:border-r border-slate-200 bg-white lg:h-screen lg:overflow-y-auto">
+    <aside className="w-full lg:w-[320px] shrink-0 flex flex-col bg-[var(--color-surface-elevated)] border-r border-[var(--color-border)] lg:h-full overflow-y-auto scroll-thin">
       {/* Header */}
-      <div className="shrink-0">
-        <h1 className="text-lg font-bold text-slate-800 tracking-tight">
-          PDFMathTranslate
+      <header className="animate-fade-in flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] shrink-0">
+        <h1
+          className="text-xl font-semibold truncate leading-tight"
+          style={{ fontFamily: "'Dancing Script', cursive" }}
+        >
+          {T.appTitle}
         </h1>
-        <p className="text-xs text-slate-500 mt-0.5">PDF 数学公式翻译工具</p>
-      </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {hasHistory && (
+            <button type="button" onClick={onHistoryOpen}
+              className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors"
+              title={T.historyTitle} aria-label={T.historyTitle}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          )}
+          <ThemeToggle />
+        </div>
+      </header>
 
-      {/* File input type toggle */}
-      <div className="flex rounded-lg bg-slate-100 p-0.5 shrink-0">
-        {(['file', 'url'] as FileInputType[]).map((type) => (
+      {/* Scrollable body */}
+      <div className="flex-1 px-4 py-3 space-y-4">
+        {/* File status indicator — only shown after upload */}
+        {hasFile && (
+          <div className="animate-slide-up flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[var(--color-brand-light)] border border-[var(--color-brand)]/20">
+            <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0 text-[var(--color-brand)]">
+              <path d="M5 2h4l3 3v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M9 2v3h3" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-[var(--color-brand)] truncate">{fileLabel}</p>
+              {state.file && (
+                <p className="text-[10px] text-[var(--color-text-tertiary)]">{formatSize(state.file.size)}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (state.file) dispatch({ type: 'SET_INPUT_FILE', file: null });
+                else dispatch({ type: 'SET_INPUT_URL', url: '' });
+              }}
+              className="p-1 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-light)] transition-colors shrink-0"
+              aria-label="清除文件"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Editing options — only shown after file uploaded or during translation */}
+        {hasFile && (
+          <div className="animate-fade-in space-y-4">
+            {/* Language pair */}
+            <LanguagePicker variant="full" />
+
+            {/* Output mode */}
+            <OutputModeSelect />
+
+            {/* Error */}
+            <ErrorBanner
+              error={state.error}
+              onDismiss={() => dispatch({ type: 'DISMISS_ERROR' })}
+              onRetry={state.status === 'failed' ? retry : undefined}
+            />
+
+            {/* Translate / Cancel */}
+            <TranslateButton onTranslate={start} onCancel={cancel} />
+
+            {/* Progress (only when active) */}
+            {isTranslating && <ProgressIndicator />}
+
+            {/* Download (only when complete) */}
+            {isComplete && <DownloadPanel />}
+          </div>
+        )}
+
+        {/* Empty state hint (no file) */}
+        {!hasFile && (
+          <div className="animate-fade-in text-center py-8">
+            <svg width="32" height="32" viewBox="0 0 16 16" className="mx-auto text-[var(--color-text-tertiary)] mb-3">
+              <path d="M8 2v8M5 6l3-3 3 3M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <p className="text-xs text-[var(--color-text-tertiary)]">拖放文件到右侧预览区</p>
+            <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">上传后此处显示编辑选项</p>
+          </div>
+        )}
+
+
+        {/* === Translation Service (collapsible) === */}
+        <CollapsibleSection title="翻译服务设置">
+          <ServiceSelector variant="full" />
+          <EnvKeyInputs />
           <button
-            key={type}
             type="button"
-            onClick={() => set('fileInputType', type)}
-            className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${
-              state.fileInputType === type
-                ? 'bg-white text-slate-800 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
+            disabled={testing}
+            onClick={async () => {
+              setTesting(true);
+              setTestResult(null);
+              try {
+                const res = await testService(state.service, state.envs);
+                if (res.status === 'ok') {
+                  setTestResult({ ok: true, text: `连接成功 · ${res.result} · ${res.elapsed_ms}ms` });
+                } else {
+                  setTestResult({ ok: false, text: `连接失败: ${res.error}` });
+                }
+              } catch (err) {
+                setTestResult({ ok: false, text: `请求失败: ${err instanceof Error ? err.message : '未知错误'}` });
+              } finally {
+                setTesting(false);
+              }
+            }}
+            className={`w-full text-xs rounded-md py-1.5 transition-colors ${
+              testing
+                ? 'bg-[var(--color-border)] text-[var(--color-text-tertiary)] cursor-wait'
+                : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]'
             }`}
           >
-            {type === 'file' ? T.fileTypeFile : T.fileTypeLink}
+            {testing ? '测试中...' : '测试服务连接'}
           </button>
-        ))}
+          {testResult && (
+            <p className={`text-xs ${testResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
+              {testResult.text}
+            </p>
+          )}
+        </CollapsibleSection>
+
+
+        {/* === Advanced Options (collapsible) === */}
+        <CollapsibleSection title={T.advancedOptions}>
+          <PageRange />
+          <AdvancedOptions />
+
+          <button
+            type="button"
+            onClick={() => {
+              dispatch({ type: 'RESET_FORM' });
+              clearPreferences();
+            }}
+            className="w-full text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] transition-colors py-1"
+          >
+            重置为默认设置
+          </button>
+        </CollapsibleSection>
       </div>
 
-      {/* File upload or URL input */}
-      {state.fileInputType === 'file' ? (
-        <FileUpload
-          file={state.file}
-          onFileSelect={(f) => set('file', f)}
-        />
-      ) : (
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium text-slate-700">
-            {T.orInputURL}
-          </label>
-          <URLInput
-            url={state.url}
-            onUrlChange={(v) => set('url', v)}
-          />
-        </div>
-      )}
-
-      {/* Service selector */}
-      <ServiceSelector
-        value={state.service}
-        onChange={(v) => set('service', v)}
-      />
-
-      {/* API env keys */}
-      <EnvKeyInputs
-        service={state.service}
-        envs={state.envs}
-        onEnvChange={updateEnv}
-      />
-
-      {/* Language picker */}
-      <LanguagePicker
-        langFrom={state.langFrom}
-        langTo={state.langTo}
-        onLangFromChange={(v) => set('langFrom', v)}
-        onLangToChange={(v) => set('langTo', v)}
-      />
-
-      {/* Output mode */}
-      <OutputModeSelect
-        value={state.outputMode}
-        onChange={(v) => set('outputMode', v)}
-      />
-
-      {/* Page range */}
-      <PageRange
-        pageRange={state.pageRange}
-        customPages={state.customPages}
-        onPageRangeChange={(v) => set('pageRange', v)}
-        onCustomPagesChange={(v) => set('customPages', v)}
-      />
-
-      {/* Advanced options */}
-      <AdvancedOptions
-        threads={state.threads}
-        skipSubsetFonts={state.skipSubsetFonts}
-        ignoreCache={state.ignoreCache}
-        vfont={state.vfont}
-        customPrompt={state.customPrompt}
-        translateMode={state.translateMode}
-        showCustomPrompt={serviceMeta?.custom_prompt ?? false}
-        onThreadsChange={(v) => set('threads', v)}
-        onSkipSubsetFontsChange={(v) => set('skipSubsetFonts', v)}
-        onIgnoreCacheChange={(v) => set('ignoreCache', v)}
-        onVfontChange={(v) => set('vfont', v)}
-        onCustomPromptChange={(v) => set('customPrompt', v)}
-        onTranslateModeChange={(v) => set('translateMode', v)}
-      />
-
-      {/* Error display */}
-      {state.error && (
-        <div className="text-xs text-error bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {state.error}
-        </div>
-      )}
-
-      {/* Translate button */}
-      <TranslateButton
-        status={state.status}
-        disabled={!canTranslate}
-        onTranslate={handleTranslate}
-        onCancel={handleCancel}
-      />
-
-      {/* Progress */}
-      <ProgressIndicator
-        progress={state.progress}
-        desc={state.progressDesc}
-        status={state.status}
-      />
-
-      {/* Downloads */}
-      {state.jobId && (
-        <DownloadPanel
-          jobId={state.jobId}
-          files={state.resultFiles}
-          outputMode={state.outputMode}
-          status={state.status}
-        />
-      )}
-
       {/* Footer */}
-      <Footer />
-    </div>
+      <div className="px-4 pb-3 shrink-0">
+        <Footer />
+      </div>
+
+      {/* Cancel dialog */}
+      <CancelConfirmDialog
+        open={cancelRequested}
+        onConfirm={confirmCancel}
+        onDismiss={dismissCancel}
+      />
+    </aside>
   );
 }

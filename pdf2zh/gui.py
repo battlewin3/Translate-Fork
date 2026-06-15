@@ -1,5 +1,5 @@
 import asyncio
-import cgi
+from email.message import Message
 import os
 import shutil
 import socket
@@ -186,11 +186,9 @@ def download_with_limit(url: str, save_path: str, size_limit: int) -> str:
     with requests.get(url, stream=True, timeout=10) as response:
         response.raise_for_status()
         content = response.headers.get("Content-Disposition")
-        try:  # filename from header
-            _, params = cgi.parse_header(content)
-            filename = params["filename"]
-        except Exception:  # filename from url
-            filename = os.path.basename(url)
+        m = Message()
+        m["Content-Disposition"] = content or ""
+        filename = m.get_filename() or os.path.basename(url)
         filename = os.path.splitext(os.path.basename(filename))[0] + ".pdf"
         with open(save_path / filename, "wb") as file:
             for chunk in response.iter_content(chunk_size=chunk_size):

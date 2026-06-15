@@ -1,33 +1,31 @@
+import { useTranslateState } from '../hooks/useTranslateState';
 import { T } from '../i18n/zh';
 
 interface TranslateButtonProps {
-  status: 'idle' | 'translating' | 'complete' | 'cancelled' | 'failed';
-  disabled: boolean;
   onTranslate: () => void;
   onCancel: () => void;
+  compact?: boolean;
 }
 
-export default function TranslateButton({
-  status,
-  disabled,
-  onTranslate,
-  onCancel,
-}: TranslateButtonProps) {
-  const isActive = status === 'translating';
+export default function TranslateButton({ onTranslate, onCancel, compact }: TranslateButtonProps) {
+  const state = useTranslateState();
+  const isActive = state.status === 'uploading' || state.status === 'translating' || state.status === 'validating';
+  const isDisabled = (!state.file && !state.url);
 
   if (isActive) {
     return (
       <button
         type="button"
         onClick={onCancel}
-        className="w-full bg-error text-white rounded-lg px-6 py-3 font-semibold hover:bg-red-700 hover:shadow-md active:scale-[0.98] transition-all duration-150 text-sm"
+        className={`bg-[var(--color-error)] text-white font-semibold hover:opacity-90 hover:-translate-y-px active:translate-y-px active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-1.5 shadow-sm ${
+          compact ? 'rounded-md h-8 px-3 text-xs' : 'w-full rounded-lg h-11 text-sm'
+        }`}
+        aria-label={T.cancel}
       >
-        <span className="flex items-center justify-center gap-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-          {T.cancel}
-        </span>
+        <svg width={compact ? 12 : 14} height={compact ? 12 : 14} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+        </svg>
+        {compact ? '取消' : T.cancel}
       </button>
     );
   }
@@ -36,10 +34,13 @@ export default function TranslateButton({
     <button
       type="button"
       onClick={onTranslate}
-      disabled={disabled}
-      className="w-full bg-brand text-white rounded-lg px-6 py-3 font-semibold hover:bg-brand-deep hover:shadow-md active:scale-[0.98] transition-all duration-150 text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:active:scale-100"
+      disabled={isDisabled}
+      className={`bg-[var(--color-brand)] text-white font-semibold hover:opacity-90 hover:-translate-y-px hover:shadow-md active:translate-y-px active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:hover:translate-y-0 disabled:hover:shadow-none shadow-sm ${
+        compact ? 'rounded-md h-8 px-4 text-xs min-w-[72px]' : 'w-full rounded-lg h-11 text-sm'
+      }`}
+      aria-label={T.translate}
     >
-      {T.translate}
+      {compact ? '翻译' : T.translate}
     </button>
   );
 }

@@ -1,4 +1,11 @@
 import logging
+import sys
+from pathlib import Path
+
+# Vendor directory: bundled packages that don't need separate pip install
+_vendor_path = Path(__file__).parent / "vendor"
+if _vendor_path.is_dir() and str(_vendor_path) not in sys.path:
+    sys.path.insert(0, str(_vendor_path))
 
 log = logging.getLogger(__name__)
 
