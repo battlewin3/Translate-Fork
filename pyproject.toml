@@ -5,7 +5,7 @@ description = "Latex PDF Translator"
 authors = [{ name = "Byaidu", email = "byaidux@gmail.com" }]
 license = "AGPL-3.0"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -36,6 +36,10 @@ dependencies = [
     "fontTools",
     "babeldoc>=0.1.22, <0.3.0",
     "rich",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.12",
+    "sse-starlette>=2.0.0",
 ]
 
 [project.optional-dependencies]
