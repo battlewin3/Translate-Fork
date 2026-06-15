@@ -27,6 +27,7 @@ class TranslateRequest:
     skip_subset_fonts: bool = False
     ignore_cache: bool = False
     compatible: bool = False
+    output_mode: str = "mono_dual"  # "mono_dual" | "side_by_side"
 
 
 @dataclass
@@ -35,6 +36,7 @@ class TranslateResult:
 
     mono_pdf: Optional[Path | bytes] = None
     dual_pdf: Optional[Path | bytes] = None
+    side_pdf: Optional[Path | bytes] = None
     time_cost: float = 0.0
 
 
