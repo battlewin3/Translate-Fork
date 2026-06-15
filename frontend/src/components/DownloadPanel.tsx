@@ -1,13 +1,7 @@
+import { useTranslateState } from '../hooks/useTranslateState';
 import { T } from '../i18n/zh';
 import { getDownloadUrl } from '../api/client';
-import type { OutputMode } from '../hooks/useTranslate';
-
-interface DownloadPanelProps {
-  jobId: string;
-  files: Record<string, string>;
-  outputMode: OutputMode;
-  status: string;
-}
+import type { OutputMode } from '../reducers/translateReducer';
 
 const modeLabels: Record<OutputMode, { key: string; label: string }[]> = {
   mono: [{ key: 'mono', label: T.downloadMono }],
@@ -22,43 +16,39 @@ const modeLabels: Record<OutputMode, { key: string; label: string }[]> = {
   ],
 };
 
-export default function DownloadPanel({ jobId, files, outputMode, status }: DownloadPanelProps) {
-  if (status !== 'complete') return null;
+export default function DownloadPanel() {
+  const state = useTranslateState();
 
-  const downloads = modeLabels[outputMode] || modeLabels.mono;
+  if (state.status !== 'completed' || !state.jobId) return null;
+
+  const downloads = modeLabels[state.outputMode] || modeLabels.mono;
 
   return (
-    <div className="space-y-2">
-      <h4 className="text-sm font-semibold text-slate-700">{T.downloadResults}</h4>
+    <div className="space-y-2 animate-[slideDown_200ms_ease-out]">
+      <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">{T.downloadResults}</h4>
       <div className="space-y-1.5">
         {downloads.map(({ key, label }) => {
-          const filename = files[key];
+          const filename = state.resultFiles[key];
           if (!filename) return null;
           return (
             <a
               key={key}
-              href={getDownloadUrl(jobId, key)}
-              className="flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 bg-white hover:border-brand/40 hover:bg-brand-light/20 transition-all group"
+              href={getDownloadUrl(state.jobId!, key)}
+              className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] hover:border-[var(--color-brand)] hover:bg-[var(--color-brand-light)] transition-all group"
               download
             >
-              <span className="text-xs text-slate-600 truncate flex-1 mr-2">{label}</span>
-              <svg
-                className="w-4 h-4 text-slate-400 group-hover:text-brand transition-colors shrink-0"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
+              <span className="text-sm text-[var(--color-text-secondary)] truncate flex-1 mr-2 group-hover:text-[var(--color-brand)] transition-colors">
+                {label}
+              </span>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                className="text-[var(--color-text-tertiary)] group-hover:text-[var(--color-brand)] transition-colors shrink-0">
+                <path d="M4 12v1a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1m-4-5v7m0 0l-2-2m2 2l2-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </a>
           );
         })}
       </div>
+      <style>{`@keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
     </div>
   );
 }

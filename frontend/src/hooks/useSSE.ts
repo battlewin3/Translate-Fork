@@ -54,8 +54,10 @@ export function useSSE({ url, onMessage, onError, onComplete }: SSEOptions) {
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
-          // SSE events are separated by double newlines
-          const events = buffer.split('\n\n');
+          // Normalize line endings: sse_starlette uses \r\n (CRLF) as default
+          // separator, but our parser expects \n. Strip \r before splitting.
+          const normalized = buffer.replace(/\r/g, '');
+          const events = normalized.split('\n\n');
           buffer = events.pop() || '';
 
           for (const event of events) {
@@ -72,7 +74,7 @@ export function useSSE({ url, onMessage, onError, onComplete }: SSEOptions) {
               try {
                 const data = JSON.parse(dataStr);
                 onMessageRef.current(data);
-                if (data.status === 'complete' || data.status === 'cancelled' || data.status === 'failed') {
+                if (data.status === 'completed' || data.status === 'cancelled' || data.status === 'failed') {
                   onCompleteRef.current?.();
                   reader.cancel();
                   return;

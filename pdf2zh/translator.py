@@ -7,19 +7,44 @@ import unicodedata
 from copy import copy
 from string import Template
 from typing import cast
-import deepl
-import ollama
-import openai
+
 import requests
-import xinference_client
-from azure.ai.translation.text import TextTranslationClient
-from azure.core.credentials import AzureKeyCredential
-from tencentcloud.common import credential
-from tencentcloud.tmt.v20180321.models import (
-    TextTranslateRequest,
-    TextTranslateResponse,
-)
-from tencentcloud.tmt.v20180321.tmt_client import TmtClient
+
+# Lazy imports for optional translator dependencies
+# Each translator class will fail gracefully at instantiation time
+# if its required package is not installed
+
+def _lazy_import(module_name: str):
+    """Import a module, returning None if unavailable."""
+    try:
+        return __import__(module_name, fromlist=["_"])
+    except ImportError:
+        return None
+
+deepl = _lazy_import("deepl")
+ollama = _lazy_import("ollama")
+openai = _lazy_import("openai")
+xinference_client = _lazy_import("xinference_client")
+
+_azure_text = _lazy_import("azure.ai.translation.text")
+TextTranslationClient = getattr(_azure_text, "TextTranslationClient", None) if _azure_text else None
+
+_azure_core = _lazy_import("azure.core.credentials")
+AzureKeyCredential = getattr(_azure_core, "AzureKeyCredential", None) if _azure_core else None
+
+# tencentcloud — single package; all or nothing
+try:
+    from tencentcloud.common import credential
+    from tencentcloud.tmt.v20180321.models import (
+        TextTranslateRequest,
+        TextTranslateResponse,
+    )
+    from tencentcloud.tmt.v20180321.tmt_client import TmtClient
+except ImportError:
+    credential = None
+    TextTranslateRequest = None
+    TextTranslateResponse = None
+    TmtClient = None
 
 from pdf2zh.cache import TranslationCache
 from pdf2zh.config import ConfigManager

@@ -19,7 +19,7 @@ export interface Language {
 
 export interface JobStatus {
   job_id: string;
-  status: 'pending' | 'translating' | 'complete' | 'cancelled' | 'failed';
+  status: 'pending' | 'translating' | 'completed' | 'cancelled' | 'failed';
   progress: number;
   desc: string;
   files: Record<string, string>;
@@ -72,7 +72,30 @@ export function getDownloadUrl(jobId: string, fileType: string): string {
   return `${API_BASE}/download/${jobId}/${fileType}`;
 }
 
+export interface TestResult {
+  status: 'ok' | 'error';
+  service: string;
+  result?: string;
+  elapsed_ms?: number;
+  error?: string;
+}
+
 export async function cancelJob(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/cancel/${jobId}`, { method: 'POST' });
   if (!res.ok) throw new Error(`取消任务失败: ${res.status}`);
+}
+
+export async function testService(service: string, envs: Record<string, string>): Promise<TestResult> {
+  const formData = new FormData();
+  formData.append('service', service);
+  formData.append('envs_json', JSON.stringify(envs));
+  const res = await fetch(`${API_BASE}/test-service`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: '未知错误' }));
+    throw new Error(err.detail || `测试失败: ${res.status}`);
+  }
+  return res.json();
 }

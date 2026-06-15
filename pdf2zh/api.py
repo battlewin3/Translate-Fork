@@ -22,16 +22,27 @@ from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
 from pdf2zh.config import ConfigManager
-from pdf2zh.translator import (
-    BaseTranslator,
-    GoogleTranslator, BingTranslator, DeepLTranslator, DeepLXTranslator,
-    AzureTranslator, AzureOpenAITranslator, OpenAITranslator,
-    OllamaTranslator, GeminiTranslator, GrokTranslator, GroqTranslator,
-    DeepseekTranslator, ZhipuTranslator, ModelScopeTranslator,
-    SiliconTranslator, MiniMaxTranslator, XinferenceTranslator,
-    TencentTranslator, AnythingLLMTranslator, DifyTranslator,
-    QwenMtTranslator, ArgosTranslator,
-)
+
+# --- Lazy-load translator classes to avoid hard dependency on all services ---
+
+_SERVICE_CLASS_NAMES = [
+    "GoogleTranslator", "BingTranslator", "DeepLTranslator", "DeepLXTranslator",
+    "AzureTranslator", "AzureOpenAITranslator", "OpenAITranslator",
+    "OllamaTranslator", "GeminiTranslator", "GrokTranslator", "GroqTranslator",
+    "DeepseekTranslator", "ZhipuTranslator", "ModelScopeTranslator",
+    "SiliconTranslator", "MiniMaxTranslator", "XinferenceTranslator",
+    "TencentTranslator", "AnythingLLMTranslator", "DifyTranslator",
+    "QwenMtTranslator", "ArgosTranslator",
+]
+
+SERVICE_REGISTRY = []
+
+for _name in _SERVICE_CLASS_NAMES:
+    try:
+        _cls = getattr(__import__("pdf2zh.translator", fromlist=[_name]), _name)
+        SERVICE_REGISTRY.append(_cls)
+    except ImportError:
+        pass  # Skip translators whose dependencies are not installed
 
 app = FastAPI(title="PDFMathTranslate API", version="1.9.11")
 
@@ -57,16 +68,6 @@ lang_map = {
     "Spanish": "es",
     "Arabic": "ar",
 }
-
-SERVICE_REGISTRY = [
-    GoogleTranslator, BingTranslator, DeepLTranslator, DeepLXTranslator,
-    AzureTranslator, AzureOpenAITranslator, OpenAITranslator,
-    OllamaTranslator, GeminiTranslator, GrokTranslator, GroqTranslator,
-    DeepseekTranslator, ZhipuTranslator, ModelScopeTranslator,
-    SiliconTranslator, MiniMaxTranslator, XinferenceTranslator,
-    TencentTranslator, AnythingLLMTranslator, DifyTranslator,
-    QwenMtTranslator, ArgosTranslator,
-]
 
 # Filter by ENABLED_SERVICES env var
 enabled_names = os.environ.get("ENABLED_SERVICES", "").split(",")
@@ -287,6 +288,7 @@ async def job_progress(job_id: str):
                     "progress": job["progress"],
                     "desc": job["desc"],
                     "status": job["status"],
+                    "error": job.get("error"),
                 })
             }
 
@@ -322,6 +324,44 @@ async def download_file(job_id: str, file_type: str):
         filename=filename,
         media_type="application/pdf",
     )
+
+
+@app.post("/api/test-service")
+async def test_service(
+    service: str = Form(...),
+    envs_json: str = Form("{}"),
+):
+    """Test connectivity for a translation service with the given env vars."""
+    import time
+
+    envs = json.loads(envs_json) if envs_json else {}
+    translator_cls = None
+    for cls in ENABLED_SERVICES:
+        if cls.name == service:
+            translator_cls = cls
+            break
+
+    if translator_cls is None:
+        raise HTTPException(status_code=404, detail=f"Service not found: {service}")
+
+    try:
+        # Pass None as model so the translator falls back to envs (e.g. OPENAI_MODEL, DEEPSEEK_MODEL)
+        instance = translator_cls("en", "zh", None, envs=envs)
+        start = time.time()
+        result = instance.do_translate("Hello")
+        elapsed = round((time.time() - start) * 1000)
+        return {
+            "status": "ok",
+            "service": service,
+            "result": result,
+            "elapsed_ms": elapsed,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": service,
+            "error": str(e),
+        }
 
 
 @app.post("/api/cancel/{job_id}")

@@ -8,6 +8,17 @@ pdf2zh_files
 gui/pdf2zh_files
 gradio_files
 tmp
+
+# Project tooling
+.gradio/
+.claude/worktrees/
+
+# Local persistent data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.lnk
 gui/gradio_files
 gui/tmp
 # Byte-compiled / optimized / DLL files

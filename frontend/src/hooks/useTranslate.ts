@@ -23,7 +23,7 @@ export interface TranslateState {
   translateMode: TranslateMode;
   envs: Record<string, string>;
   jobId: string | null;
-  status: 'idle' | 'translating' | 'complete' | 'cancelled' | 'failed';
+  status: 'idle' | 'translating' | 'completed' | 'cancelled' | 'failed';
   progress: number;
   progressDesc: string;
   error: string | null;

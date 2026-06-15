@@ -1,156 +1,80 @@
-import { useState } from 'react';
+import { useTranslateState } from '../hooks/useTranslateState';
+import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
+import { useServiceList } from '../hooks/useServiceList';
 import { T } from '../i18n/zh';
-import type { TranslateMode } from '../hooks/useTranslate';
+import type { TranslateMode } from '../reducers/translateReducer';
 
-interface AdvancedOptionsProps {
-  threads: number;
-  skipSubsetFonts: boolean;
-  ignoreCache: boolean;
-  vfont: string;
-  customPrompt: string;
-  translateMode: TranslateMode;
-  showCustomPrompt: boolean;
-  onThreadsChange: (v: number) => void;
-  onSkipSubsetFontsChange: (v: boolean) => void;
-  onIgnoreCacheChange: (v: boolean) => void;
-  onVfontChange: (v: string) => void;
-  onCustomPromptChange: (v: string) => void;
-  onTranslateModeChange: (v: TranslateMode) => void;
-}
+export default function AdvancedOptions() {
+  const state = useTranslateState();
+  const dispatch = useTranslateDispatch();
+  const { services } = useServiceList();
 
-export default function AdvancedOptions({
-  threads,
-  skipSubsetFonts,
-  ignoreCache,
-  vfont,
-  customPrompt,
-  translateMode,
-  showCustomPrompt,
-  onThreadsChange,
-  onSkipSubsetFontsChange,
-  onIgnoreCacheChange,
-  onVfontChange,
-  onCustomPromptChange,
-  onTranslateModeChange,
-}: AdvancedOptionsProps) {
-  const [open, setOpen] = useState(false);
+  const service = services.find((s) => s.name === state.service);
+  const showCustomPrompt = service?.custom_prompt ?? false;
 
   return (
-    <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-      >
-        <span>{T.advancedOptions}</span>
-        <svg
-          className={`w-4 h-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
-          {/* 线程数 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              {T.threads}
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={16}
-              value={threads}
-              onChange={(e) => onThreadsChange(Math.max(1, Math.min(16, parseInt(e.target.value) || 1)))}
-              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand/40 focus:border-brand outline-none transition-all bg-white"
-            />
-          </div>
+    <div className="space-y-3">
+      {/* Threads */}
+      <div className="space-y-1">
+        <label htmlFor="threads-input" className="block text-xs font-medium text-[var(--color-text-secondary)]">{T.threads}</label>
+        <input id="threads-input" type="number" min={1} max={16}
+          value={state.threads}
+          onChange={(e) => dispatch({ type: 'SET_THREADS', threads: Math.max(1, Math.min(16, parseInt(e.target.value) || 1)) })}
+          className="w-full h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm focus:outline-none focus:ring-0 focus:border-[var(--color-border-focus)] transition-colors"
+        />
+      </div>
 
-          {/* 翻译模式 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">
-              {T.translateMode}
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => onTranslateModeChange('fast')}
-                className={`flex-1 px-3 py-1.5 text-xs rounded-md border transition-all ${
-                  translateMode === 'fast'
-                    ? 'bg-brand text-white border-brand'
-                    : 'bg-white text-slate-600 border-slate-300 hover:border-brand/50'
-                }`}
-              >
-                {T.modeFast}
-              </button>
-              <button
-                type="button"
-                onClick={() => onTranslateModeChange('precise')}
-                className={`flex-1 px-3 py-1.5 text-xs rounded-md border transition-all ${
-                  translateMode === 'precise'
-                    ? 'bg-brand text-white border-brand'
-                    : 'bg-white text-slate-600 border-slate-300 hover:border-brand/50'
-                }`}
-              >
-                {T.modePrecise}
-              </button>
-            </div>
-          </div>
+      {/* Translate mode */}
+      <div className="space-y-1.5">
+        <div className="text-xs font-medium text-[var(--color-text-secondary)]">{T.translateMode}</div>
+        <div className="flex gap-2">
+          {(['fast', 'precise'] as TranslateMode[]).map((mode) => (
+            <button key={mode} type="button"
+              onClick={() => dispatch({ type: 'SET_TRANSLATE_MODE', mode })}
+              className={`flex-1 px-3 py-1.5 text-xs rounded-md border transition-all active:scale-[0.98] ${
+                state.translateMode === mode
+                  ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)]'
+                  : 'bg-[var(--color-surface-elevated)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-border-focus)]'
+              }`}>
+              {mode === 'fast' ? T.modeFast : T.modePrecise}
+            </button>
+          ))}
+        </div>
+      </div>
 
-          {/* Checkboxes */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={skipSubsetFonts}
-                onChange={(e) => onSkipSubsetFontsChange(e.target.checked)}
-                className="accent-brand w-4 h-4 rounded"
-              />
-              <span className="text-xs text-slate-600">{T.skipFontSubset}</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={ignoreCache}
-                onChange={(e) => onIgnoreCacheChange(e.target.checked)}
-                className="accent-brand w-4 h-4 rounded"
-              />
-              <span className="text-xs text-slate-600">{T.ignoreCache}</span>
-            </label>
-          </div>
+      {/* Checkboxes */}
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={state.skipSubsetFonts}
+            onChange={(e) => dispatch({ type: 'SET_SKIP_FONT_SUBSET', skip: e.target.checked })}
+            className="accent-[var(--color-brand)] w-4 h-4 rounded" />
+          <span className="text-xs text-[var(--color-text-secondary)]">{T.skipFontSubset}</span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={state.ignoreCache}
+            onChange={(e) => dispatch({ type: 'SET_IGNORE_CACHE', ignore: e.target.checked })}
+            className="accent-[var(--color-brand)] w-4 h-4 rounded" />
+          <span className="text-xs text-[var(--color-text-secondary)]">{T.ignoreCache}</span>
+        </label>
+      </div>
 
-          {/* 自定义公式字体正则 */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              {T.vfontLabel}
-            </label>
-            <input
-              type="text"
-              value={vfont}
-              onChange={(e) => onVfontChange(e.target.value)}
-              placeholder={T.vfontHint}
-              className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand/40 focus:border-brand outline-none transition-all bg-white"
-            />
-          </div>
+      {/* Vfont */}
+      <div className="space-y-1">
+        <label htmlFor="vfont-input" className="block text-xs font-medium text-[var(--color-text-secondary)]">{T.vfontLabel}</label>
+        <input id="vfont-input" type="text" value={state.vfont}
+          onChange={(e) => dispatch({ type: 'SET_VFONT', vfont: e.target.value })}
+          placeholder={T.vfontHint}
+          className="w-full h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm focus:outline-none focus:ring-0 focus:border-[var(--color-border-focus)] transition-colors" />
+      </div>
 
-          {/* 自定义 LLM 提示词 */}
-          {showCustomPrompt && (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                {T.customPrompt}
-              </label>
-              <textarea
-                value={customPrompt}
-                onChange={(e) => onCustomPromptChange(e.target.value)}
-                rows={3}
-                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand/40 focus:border-brand outline-none transition-all bg-white resize-y"
-              />
-            </div>
-          )}
+      {/* Custom Prompt */}
+      {showCustomPrompt && (
+        <div className="space-y-1">
+          <label htmlFor="prompt-input" className="block text-xs font-medium text-[var(--color-text-secondary)]">{T.customPrompt}</label>
+          <textarea id="prompt-input" value={state.customPrompt}
+            onChange={(e) => dispatch({ type: 'SET_CUSTOM_PROMPT', prompt: e.target.value })}
+            rows={3}
+            className="w-full px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm focus:outline-none focus:ring-0 focus:border-[var(--color-border-focus)] transition-colors resize-y" />
         </div>
       )}
     </div>
