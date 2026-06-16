@@ -1,17 +1,18 @@
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import type { PageRangePreset } from '../reducers/translateReducer';
 
-const presets: { value: PageRangePreset; label: string }[] = [
-  { value: 'all', label: T.pageAll },
-  { value: 'first', label: T.pageFirst },
-  { value: 'first5', label: T.pageFirst5 },
-  { value: 'custom', label: T.pageCustom },
-];
-
 export default function PageRange() {
+  const T = useT();
   const state = useTranslateState();
+
+  const presets: { value: PageRangePreset; label: string }[] = [
+    { value: 'all', label: T.pageAll },
+    { value: 'first', label: T.pageFirst },
+    { value: 'first5', label: T.pageFirst5 },
+    { value: 'custom', label: T.pageCustom },
+  ];
   const dispatch = useTranslateDispatch();
 
   return (

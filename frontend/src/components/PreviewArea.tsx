@@ -15,7 +15,7 @@ export default function PreviewArea({ previewUrl }: PreviewAreaProps) {
   const isComplete = state.status === 'completed';
 
   return (
-    <main className="flex-1 min-h-0 bg-[var(--color-surface)] flex flex-col">
+    <main id="main-content" className="flex-1 min-h-0 bg-[var(--color-surface)] flex flex-col">
       {/* Empty state: centered drop zone — show whenever there's no input */}
       {!hasInput && (
         <div className="animate-fade-in flex-1 flex">

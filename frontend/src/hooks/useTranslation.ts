@@ -5,7 +5,7 @@ import { useSSE } from './useSSE';
 import { useJobHistory } from './useJobHistory';
 import { useServiceList } from './useServiceList';
 import {
-  startTranslation as apiStartTranslation,
+  startTranslationWithProgress,
   cancelJob as apiCancelJob,
   getJobStatus as apiGetJobStatus,
   getProgressUrl,
@@ -31,55 +31,54 @@ export function useTranslation() {
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // SSE URL derived from state
-  const sseUrl = state.jobId && state.status === 'uploading'
+  const sseUrl = state.jobId && (state.status === 'uploading' || state.status === 'translating')
     ? getProgressUrl(state.jobId)
-    : state.status === 'translating' && state.jobId
-      ? getProgressUrl(state.jobId)
-      : null;
+    : null;
 
   const sseRetryCount = useRef(0);
 
   const handleSSEMessage = useCallback(
-    (data: { progress: number; desc: string; status: string; error?: string }) => {
+    (data: { progress: number; desc: string; status: string; error?: string; phase?: string; phase_page?: number; phase_total?: number }) => {
       dispatch({
         type: 'TRANSLATE_PROGRESS',
         progress: data.progress,
         desc: data.desc,
+        phase: data.phase,
+        phasePage: data.phase_page,
+        phaseTotal: data.phase_total,
       });
       if (data.status === 'completed') {
-        // Fetch full job status to get result files
-        if (state.jobId) {
-          apiGetJobStatus(state.jobId)
-            .then((job) => {
-              dispatch({
-                type: 'TRANSLATE_COMPLETE',
-                jobId: state.jobId!,
-                files: job.files || {},
-              });
-              // Add to history
-              addEntry({
-                jobId: state.jobId!,
-                timestamp: Date.now(),
-                fileName: state.file?.name || state.url || 'unknown',
-                service: state.service,
-                langFrom: state.langFrom,
-                langTo: state.langTo,
-                outputMode: state.outputMode,
-                status: 'completed',
-                files: job.files || {},
-              });
-              stopElapsed();
-            })
-            .catch(() => {
-              // Fallback: mark complete anyway
-              dispatch({
-                type: 'TRANSLATE_COMPLETE',
-                jobId: state.jobId!,
-                files: {},
-              });
-              stopElapsed();
+        // Fetch full job status to get result files (sseUrl guarantee: jobId exists)
+        apiGetJobStatus(state.jobId!)
+          .then((job) => {
+            dispatch({
+              type: 'TRANSLATE_COMPLETE',
+              jobId: state.jobId!,
+              files: job.files || {},
             });
-        }
+            // Add to history
+            addEntry({
+              jobId: state.jobId!,
+              timestamp: Date.now(),
+              fileName: state.file?.name || state.url || 'unknown',
+              service: state.service,
+              langFrom: state.langFrom,
+              langTo: state.langTo,
+              outputMode: state.outputMode,
+              status: 'completed',
+              files: job.files || {},
+            });
+            stopElapsed();
+          })
+          .catch(() => {
+            // Fallback: mark complete anyway
+            dispatch({
+              type: 'TRANSLATE_COMPLETE',
+              jobId: state.jobId!,
+              files: {},
+            });
+            stopElapsed();
+          });
       } else if (data.status === 'cancelled') {
         dispatch({ type: 'TRANSLATE_CANCELLED' });
         stopElapsed();
@@ -243,7 +242,9 @@ export function useTranslation() {
 
       dispatch({ type: 'TRANSLATE_UPLOADING', progress: 0 });
 
-      const result = await apiStartTranslation(formData);
+      const result = await startTranslationWithProgress(formData, (uploadPct) => {
+        dispatch({ type: 'TRANSLATE_UPLOADING', progress: uploadPct });
+      });
       const jobId = result.job_id;
 
       dispatch({ type: 'TRANSLATE_PROGRESS', progress: 0, desc: '正在启动翻译...', elapsedSeconds: 0, jobId });

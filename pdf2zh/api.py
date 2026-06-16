@@ -46,6 +46,21 @@ for _name in _SERVICE_CLASS_NAMES:
 
 app = FastAPI(title="PDFMathTranslate API", version="1.9.11")
 
+
+def _ensure_model_loaded():
+    """Load the ONNX layout model if not already cached."""
+    from pdf2zh.doclayout import ModelInstance, OnnxModel
+
+    if ModelInstance.value is None:
+        ModelInstance.value = OnnxModel.load_available()
+
+
+@app.on_event("startup")
+async def startup_warmup():
+    """Preload the ONNX layout model so the first translation request
+    does not pay a 2–5 second cold-start penalty."""
+    _ensure_model_loaded()
+
 # CORS for local dev
 app.add_middleware(
     CORSMiddleware,
@@ -126,7 +141,7 @@ async def start_translation(
     custom_pages: str = Form(""),
     output_mode: str = Form("mono_dual"),
     threads: int = Form(4),
-    skip_subset_fonts: bool = Form(False),
+    skip_subset_fonts: bool = Form(True),
     ignore_cache: bool = Form(False),
     vfont: str = Form(""),
     prompt: str = Form(""),
@@ -186,10 +201,9 @@ async def start_translation(
                 jobs[job_id]["desc"] = "正在翻译..."
 
             from pdf2zh.high_level import translate
-            from pdf2zh.doclayout import ModelInstance, OnnxModel
+            from pdf2zh.doclayout import ModelInstance
 
-            if ModelInstance.value is None:
-                ModelInstance.value = OnnxModel.load_available()
+            _ensure_model_loaded()
 
             lang_in = lang_map.get(lang_from, "en")
             lang_out = lang_map.get(lang_to, "zh")
@@ -200,6 +214,9 @@ async def start_translation(
                 with jobs_lock:
                     jobs[job_id]["progress"] = pct
                     jobs[job_id]["desc"] = desc
+                    jobs[job_id]["phase"] = getattr(t, "phase", "")
+                    jobs[job_id]["phase_page"] = getattr(t, "page", 0)
+                    jobs[job_id]["phase_total"] = getattr(t, "total_pages", 0)
 
             output = str(upload_dir)
 
@@ -223,6 +240,10 @@ async def start_translation(
             )
 
             # result_files is list of (mono, dual, side) tuples
+            with jobs_lock:
+                jobs[job_id]["phase"] = "finalizing"
+                jobs[job_id]["desc"] = "正在生成最终文件..."
+
             files_output = {}
             for item in result_files:
                 mono_path = item[0]
@@ -276,21 +297,38 @@ async def job_progress(job_id: str):
     """SSE endpoint for real-time translation progress."""
     async def event_generator():
         import time
+        last_hash = None
         while True:
             with jobs_lock:
                 job = jobs.get(job_id)
             if not job:
                 break
 
-            yield {
-                "event": "progress",
-                "data": json.dumps({
-                    "progress": job["progress"],
-                    "desc": job["desc"],
-                    "status": job["status"],
-                    "error": job.get("error"),
-                })
-            }
+            # Only yield when job state actually changed
+            snapshot = (
+                job["progress"],
+                job["desc"],
+                job["status"],
+                job.get("error"),
+                job.get("phase", ""),
+                job.get("phase_page", 0),
+                job.get("phase_total", 0),
+            )
+            current_hash = hash(snapshot)
+            if current_hash != last_hash:
+                last_hash = current_hash
+                yield {
+                    "event": "progress",
+                    "data": json.dumps({
+                        "progress": snapshot[0],
+                        "desc": snapshot[1],
+                        "status": snapshot[2],
+                        "error": snapshot[3],
+                        "phase": snapshot[4],
+                        "phase_page": snapshot[5],
+                        "phase_total": snapshot[6],
+                    })
+                }
 
             if job["status"] in ("completed", "failed", "cancelled"):
                 break

@@ -1,10 +1,11 @@
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useServiceList } from '../hooks/useServiceList';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import type { TranslateMode } from '../reducers/translateReducer';
 
 export default function AdvancedOptions() {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { services } = useServiceList();
@@ -22,6 +23,7 @@ export default function AdvancedOptions() {
           onChange={(e) => dispatch({ type: 'SET_THREADS', threads: Math.max(1, Math.min(16, parseInt(e.target.value) || 1)) })}
           className="w-full h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-sm focus:outline-none focus:ring-0 focus:border-[var(--color-border-focus)] transition-colors"
         />
+        <p className="text-[11px] text-[var(--color-text-tertiary)] leading-relaxed">{T.threadsHint}</p>
       </div>
 
       {/* Translate mode */}
@@ -44,12 +46,15 @@ export default function AdvancedOptions() {
 
       {/* Checkboxes */}
       <div className="space-y-2">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={state.skipSubsetFonts}
-            onChange={(e) => dispatch({ type: 'SET_SKIP_FONT_SUBSET', skip: e.target.checked })}
-            className="accent-[var(--color-brand)] w-4 h-4 rounded" />
-          <span className="text-xs text-[var(--color-text-secondary)]">{T.skipFontSubset}</span>
-        </label>
+        <div className="space-y-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={state.skipSubsetFonts}
+              onChange={(e) => dispatch({ type: 'SET_SKIP_FONT_SUBSET', skip: e.target.checked })}
+              className="accent-[var(--color-brand)] w-4 h-4 rounded" />
+            <span className="text-xs text-[var(--color-text-secondary)]">{T.skipFontSubset}</span>
+          </label>
+          <p className="text-[11px] text-[var(--color-text-tertiary)] leading-relaxed ml-6">{T.skipFontSubsetHint}</p>
+        </div>
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={state.ignoreCache}
             onChange={(e) => dispatch({ type: 'SET_IGNORE_CACHE', ignore: e.target.checked })}

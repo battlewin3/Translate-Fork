@@ -1,17 +1,18 @@
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import type { OutputMode } from '../reducers/translateReducer';
 
-const modes: { value: OutputMode; label: string; desc: string; isNew?: boolean }[] = [
-  { value: 'mono', label: T.outputModeMono, desc: T.outputModeMonoDesc },
-  { value: 'dual', label: T.outputModeDual, desc: T.outputModeDualDesc },
-  { value: 'side', label: T.outputModeSide, desc: T.outputModeSideDesc, isNew: true },
-];
-
 export default function OutputModeSelect() {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
+
+  const modes: { value: OutputMode; label: string; desc: string; isNew?: boolean }[] = [
+    { value: 'mono', label: T.outputModeMono, desc: T.outputModeMonoDesc },
+    { value: 'dual', label: T.outputModeDual, desc: T.outputModeDualDesc },
+    { value: 'side', label: T.outputModeSide, desc: T.outputModeSideDesc, isNew: true },
+  ];
 
   return (
     <div className="space-y-2">

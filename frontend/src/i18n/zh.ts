@@ -56,7 +56,9 @@ export const T = {
   // Advanced options
   advancedOptions: "高级选项",
   threads: "线程数",
+  threadsHint: "更多线程可加速翻译，但免费服务可能触发速率限制",
   skipFontSubset: "跳过字体子集化",
+  skipFontSubsetHint: "开启可节省 1–5 秒后处理时间，输出文件略大；关闭后 PDF 体积更小但需额外处理",
   ignoreCache: "忽略缓存",
   vfontLabel: "自定义公式字体正则",
   vfontHint: "正则表达式匹配公式字体名称",
@@ -75,6 +77,8 @@ export const T = {
 
   // Progress
   progress: "翻译进度",
+  phaseLayout: "分析页面布局",
+  phaseFinalizing: "生成最终文件",
   estimatedTime: "预计剩余",
   elapsedTime: "已用时间",
 
@@ -125,4 +129,25 @@ export const T = {
 
   // Badge
   newFeature: "新功能",
+
+  // Hardcoded strings that need i18n
+  maxFileSize: "PDF / DOCX · 最大 100 MB",
+  urlInputPlaceholder: "请输入链接地址",
+  confirm: "确认",
+  backToFile: "返回文件上传",
+  noMatch: "无匹配服务",
+  today: "今天",
+  statusCompleted: "完成",
+  statusFailed: "失败",
+  statusCancelled: "已取消",
+  themeSystem: "跟随系统",
+  resetToDefault: "重置为默认设置",
+  testingService: "测试中...",
+  testServiceConn: "测试服务连接",
+  clearFile: "清除文件",
+  noFileHint: "拖放文件到右侧预览区",
+  noFileHintSub: "上传后此处显示编辑选项",
 } as const;
+
+export type TranslationKey = keyof typeof T;
+export type Translations = Record<TranslationKey, string>;

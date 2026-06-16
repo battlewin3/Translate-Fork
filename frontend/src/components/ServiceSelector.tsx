@@ -1,24 +1,80 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useServiceList } from '../hooks/useServiceList';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 interface ServiceSelectorProps {
   variant?: 'full' | 'compact';
 }
 
 export default function ServiceSelector({ variant = 'full' }: ServiceSelectorProps) {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { services, loading, error: svcError, retry } = useServiceList();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const filtered = services.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
   const isCompact = variant === 'compact';
 
+  const selectService = useCallback((name: string) => {
+    dispatch({ type: 'SET_SERVICE', service: name });
+    setOpen(false);
+    setSearch('');
+  }, [dispatch]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!open) return;
+
+    const max = filtered.length - 1;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightIndex((i) => (i >= max ? 0 : i + 1));
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightIndex((i) => (i <= 0 ? max : i - 1));
+        break;
+      case 'Home':
+        e.preventDefault();
+        setHighlightIndex(max >= 0 ? 0 : -1);
+        break;
+      case 'End':
+        e.preventDefault();
+        setHighlightIndex(max);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        setHighlightIndex((i) => {
+          if (i >= 0 && i < filtered.length) {
+            selectService(filtered[i].name);
+          }
+          return i;
+        });
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setOpen(false);
+        setSearch('');
+        break;
+    }
+  }, [open, filtered, selectService]);
+
+  // Scroll highlighted option into view
+  useEffect(() => {
+    if (highlightIndex < 0 || !listRef.current) return;
+    const el = listRef.current.children[highlightIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlightIndex]);
+
+  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => { if (containerRef.current && !containerRef.current.contains(e.target as Node)) { setOpen(false); setSearch(''); } };
@@ -47,8 +103,12 @@ export default function ServiceSelector({ variant = 'full' }: ServiceSelectorPro
     );
   }
 
+  const activeDescendant = highlightIndex >= 0 && filtered[highlightIndex]
+    ? `svc-option-${filtered[highlightIndex].name.replace(/\s+/g, '-')}`
+    : undefined;
+
   return (
-    <div className={isCompact ? 'relative' : 'space-y-1'} ref={containerRef}>
+    <div className={isCompact ? 'relative' : 'space-y-1'} ref={containerRef} onKeyDown={handleKeyDown}>
       {!isCompact && <label id="svc-label" className="block text-xs font-medium text-[var(--color-text-secondary)]">{T.serviceLabel}</label>}
       <div className="relative">
         <button type="button" aria-labelledby={isCompact ? undefined : 'svc-label'} aria-expanded={open} aria-haspopup="listbox"
@@ -67,19 +127,27 @@ export default function ServiceSelector({ variant = 'full' }: ServiceSelectorPro
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={T.serviceSearch}
                 className="w-full h-8 px-2 rounded text-sm bg-[var(--color-surface)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none" autoFocus />
             </div>
-            <ul role="listbox" className="overflow-y-auto py-1 scroll-thin">
+            <ul ref={listRef} role="listbox" aria-activedescendant={activeDescendant} className="overflow-y-auto py-1 scroll-thin">
               {filtered.length === 0 ? (
                 <li className="px-3 py-2 text-xs text-[var(--color-text-tertiary)]">无匹配服务</li>
-              ) : filtered.map((svc) => (
-                <li key={svc.name} role="option" aria-selected={svc.name === state.service}
-                  onClick={() => { dispatch({ type: 'SET_SERVICE', service: svc.name }); setOpen(false); setSearch(''); }}
+              ) : filtered.map((svc, idx) => {
+                const optId = `svc-option-${svc.name.replace(/\s+/g, '-')}`;
+                const isSelected = svc.name === state.service;
+                const isHighlighted = idx === highlightIndex;
+                return (
+                <li key={svc.name} id={optId} role="option" aria-selected={isSelected}
+                  onClick={() => selectService(svc.name)}
+                  onMouseEnter={() => setHighlightIndex(idx)}
                   className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 transition-colors ${
-                    svc.name === state.service ? 'bg-[var(--color-brand-light)] text-[var(--color-brand)] font-medium' : 'hover:bg-[var(--color-border)]'
+                    isSelected ? 'bg-[var(--color-brand-light)] text-[var(--color-brand)] font-medium'
+                    : isHighlighted ? 'bg-[var(--color-border)]'
+                    : 'hover:bg-[var(--color-border)]'
                   }`}>
-                  {svc.name === state.service && <svg width="12" height="12" viewBox="0 0 16 16"><path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  <span className={svc.name === state.service ? '' : 'ml-5'}>{svc.name}</span>
+                  {isSelected && <svg width="12" height="12" viewBox="0 0 16 16"><path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  <span className={isSelected ? '' : 'ml-5'}>{svc.name}</span>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </div>
         )}

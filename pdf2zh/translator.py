@@ -61,6 +61,11 @@ def remove_control_characters(s):
     return "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
 
 
+def is_formula_only(text: str) -> bool:
+    """Return True if text is empty or consists solely of formula placeholders."""
+    return not text.strip() or bool(re.match(r"^\{v\d+\}$", text.strip()))
+
+
 class BaseTranslator:
     name = "base"
     envs = {}
@@ -125,6 +130,23 @@ class BaseTranslator:
         translation = self.do_translate(text)
         self.cache.set(text, translation)
         return translation
+
+    def translate_batch(self, texts: list[str]) -> list[str]:
+        """
+        Translate multiple texts. Default falls back to sequential translate().
+
+        Subclasses that can batch efficiently (e.g. LLM services) override this
+        to issue a single API call for all texts.
+
+        :param texts: list of source texts
+        :return: list of translated texts, same length and order as input
+        """
+        return [self.translate(t) for t in texts]
+
+    @property
+    def can_batch(self) -> bool:
+        """Whether this translator supports batch translation."""
+        return False
 
     def do_translate(self, text: str) -> str:
         """
@@ -523,6 +545,125 @@ class OpenAITranslator(BaseTranslator):
 
     def get_rich_text_right_placeholder(self, id: int):
         return self.get_formular_placeholder(id + 1)
+
+    # Delimiter used to separate segments in batch translation.
+    # Chosen to be extremely unlikely in natural language text.
+    _BATCH_DELIMITER = "|||TRANSLATE_SEGMENT|||"
+    _BATCH_DELIMITER_FALLBACK = "<<<SEGMENT_BD98A72C>>>"
+
+    @property
+    def can_batch(self) -> bool:
+        return True
+
+    def translate_batch(self, texts: list[str]) -> list[str]:
+        """
+        Batch-translate multiple texts in a single API call.
+
+        Skips empty / formula-only texts (returns as-is). Checks cache for
+        each text individually — only uncached texts are sent to the API.
+        Falls back to sequential translate() on any error.
+        """
+        # Identify which texts actually need translation
+        non_trivial = []
+        non_trivial_indices = []
+        results = [None] * len(texts)
+
+        for i, text in enumerate(texts):
+            if is_formula_only(text):
+                results[i] = text  # formula-only, keep as-is
+                continue
+            if not self.ignore_cache:
+                cached = self.cache.get(text)
+                if cached is not None:
+                    results[i] = cached
+                    continue
+            non_trivial.append(text)
+            non_trivial_indices.append(i)
+
+        if not non_trivial:
+            return results
+
+        # Pick delimiter — avoid collision with source texts
+        delimiter = self._BATCH_DELIMITER
+        for t in non_trivial:
+            if delimiter in t:
+                delimiter = self._BATCH_DELIMITER_FALLBACK
+                break
+
+        try:
+            batch_result = self._do_translate_batch(non_trivial, delimiter)
+            segments = batch_result.split(delimiter)
+
+            if len(segments) != len(non_trivial):
+                logger.warning(
+                    f"Batch translation segment count mismatch: "
+                    f"expected {len(non_trivial)}, got {len(segments)}. "
+                    f"Falling back to sequential."
+                )
+                raise ValueError("Segment count mismatch in batch result")
+
+            for idx, segment in zip(non_trivial_indices, segments):
+                cleaned = segment.strip()
+                results[idx] = cleaned
+                self.cache.set(texts[idx], cleaned)
+
+        except Exception:
+            logger.warning(
+                "Batch translation failed, falling back to sequential.",
+                exc_info=True,
+            )
+            # Fallback: translate one by one, skip redundant cache check
+            for i, text in enumerate(texts):
+                if results[i] is None:
+                    results[i] = self.translate(text, ignore_cache=True)
+
+        return results
+
+    def _do_translate_batch(self, texts: list[str], delimiter: str) -> str:
+        """Issue a single chat completion for a batch of texts."""
+        segments_block = "\n\n".join(
+            f"Segment {j + 1}:\n{t}" for j, t in enumerate(texts)
+        )
+        batch_prompt = (
+            f"Translate the following {len(texts)} segments from {self.lang_in} "
+            f"to {self.lang_out}. Keep ALL formula markers like {{v0}}, {{v1}} "
+            f"exactly as-is — do not translate or modify them.\n\n"
+            f"Output one translation per segment, separated by the delimiter "
+            f"\"{delimiter}\". Do not include segment numbers in the output.\n\n"
+            f"{segments_block}"
+        )
+
+        messages = (
+            self.prompt(batch_prompt, self.prompttext)
+            if self.prompttext
+            else [
+                {
+                    "role": "user",
+                    "content": (
+                        "You are a professional, authentic machine translation engine. "
+                        "Only output the translated text, do not include any other text."
+                        "\n\n"
+                        f"{batch_prompt}"
+                        "\n\n"
+                        "Translated Text:"
+                    ),
+                }
+            ]
+        )
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            **self.options,
+            messages=messages,
+            stream=False,  # batch always non-streaming for reliable delimiter splitting
+        )
+        if not response.choices:
+            if hasattr(response, "error"):
+                raise ValueError("Error response from Service", response.error)
+            raise ValueError("No choices in batch response")
+        content = response.choices[0].message.content or ""
+        content = self.think_filter_regex.sub("", content).strip()
+        return content
 
 
 class AzureOpenAITranslator(BaseTranslator):

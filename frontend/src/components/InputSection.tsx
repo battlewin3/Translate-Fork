@@ -1,16 +1,17 @@
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import FileDropZone from './FileDropZone';
 import URLInput from './URLInput';
 
-const inputTypes = [
-  { value: 'file' as const, label: T.fileTypeFile },
-  { value: 'url' as const, label: T.fileTypeLink },
-];
-
 export default function InputSection() {
+  const T = useT();
   const state = useTranslateState();
+
+  const inputTypes = [
+    { value: 'file' as const, label: T.fileTypeFile },
+    { value: 'url' as const, label: T.fileTypeLink },
+  ];
   const dispatch = useTranslateDispatch();
 
   return (

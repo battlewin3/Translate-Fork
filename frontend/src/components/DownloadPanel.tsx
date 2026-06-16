@@ -1,23 +1,24 @@
 import { useTranslateState } from '../hooks/useTranslateState';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import { getDownloadUrl } from '../api/client';
 import type { OutputMode } from '../reducers/translateReducer';
 
-const modeLabels: Record<OutputMode, { key: string; label: string }[]> = {
-  mono: [{ key: 'mono', label: T.downloadMono }],
-  dual: [
-    { key: 'mono', label: T.downloadMono },
-    { key: 'dual', label: T.downloadDual },
-  ],
-  side: [
-    { key: 'mono', label: T.downloadMono },
-    { key: 'dual', label: T.downloadDual },
-    { key: 'side', label: T.downloadSide },
-  ],
-};
-
 export default function DownloadPanel() {
+  const T = useT();
   const state = useTranslateState();
+
+  const modeLabels: Record<OutputMode, { key: string; label: string }[]> = {
+    mono: [{ key: 'mono', label: T.downloadMono }],
+    dual: [
+      { key: 'mono', label: T.downloadMono },
+      { key: 'dual', label: T.downloadDual },
+    ],
+    side: [
+      { key: 'mono', label: T.downloadMono },
+      { key: 'dual', label: T.downloadDual },
+      { key: 'side', label: T.downloadSide },
+    ],
+  };
 
   if (state.status !== 'completed' || !state.jobId) return null;
 

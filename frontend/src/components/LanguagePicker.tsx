@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useLanguageList } from '../hooks/useLanguageList';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 function ComboboxSelect({
   labelId, value, options, onChange, placeholder, loading, compact,
@@ -11,14 +11,49 @@ function ComboboxSelect({
   onChange: (code: string) => void; placeholder: string; loading: boolean;
   compact?: boolean;
 }) {
+  const T = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const filtered = options.filter((o) =>
     o.name.toLowerCase().includes(search.toLowerCase()) || o.code.toLowerCase().includes(search.toLowerCase())
   );
   const selected = options.find((o) => o.code === value);
+
+  const selectOption = useCallback((code: string) => {
+    onChange(code);
+    setOpen(false);
+    setSearch('');
+  }, [onChange]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!open) return;
+    const max = filtered.length - 1;
+    switch (e.key) {
+      case 'ArrowDown': e.preventDefault(); setHighlightIndex((i) => (i >= max ? 0 : i + 1)); break;
+      case 'ArrowUp': e.preventDefault(); setHighlightIndex((i) => (i <= 0 ? max : i - 1)); break;
+      case 'Home': e.preventDefault(); setHighlightIndex(max >= 0 ? 0 : -1); break;
+      case 'End': e.preventDefault(); setHighlightIndex(max); break;
+      case 'Enter':
+        e.preventDefault();
+        setHighlightIndex((i) => {
+          if (i >= 0 && i < filtered.length) selectOption(filtered[i].code);
+          return i;
+        });
+        break;
+      case 'Escape': e.preventDefault(); setOpen(false); setSearch(''); break;
+    }
+  }, [open, filtered, selectOption]);
+
+  // Scroll highlighted option into view
+  useEffect(() => {
+    if (highlightIndex < 0 || !listRef.current) return;
+    const el = listRef.current.children[highlightIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlightIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -29,8 +64,12 @@ function ComboboxSelect({
 
   if (loading) return <div className={`rounded-lg bg-[var(--color-border)] animate-pulse ${compact ? 'h-8' : 'h-9'}`} />;
 
+  const activeDescendant = highlightIndex >= 0 && filtered[highlightIndex]
+    ? `lang-opt-${filtered[highlightIndex].code}`
+    : undefined;
+
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative" ref={containerRef} onKeyDown={handleKeyDown}>
       <button type="button" aria-labelledby={labelId} aria-expanded={open} aria-haspopup="listbox"
         onClick={() => setOpen(!open)}
         className={`rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elevated)] text-left flex items-center justify-between hover:border-[var(--color-border-focus)] transition-colors w-full ${
@@ -49,20 +88,27 @@ function ComboboxSelect({
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={T.langSearch}
               className={`w-full px-2 rounded bg-[var(--color-surface)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none ${compact ? 'h-7 text-xs' : 'h-8 text-sm'}`} autoFocus />
           </div>
-          <ul role="listbox" className="overflow-y-auto py-1 scroll-thin">
-            {filtered.map((l) => (
-              <li key={l.code} role="option" aria-selected={l.code === value}
-                onClick={() => { onChange(l.code); setOpen(false); setSearch(''); }}
+          <ul ref={listRef} role="listbox" aria-activedescendant={activeDescendant} className="overflow-y-auto py-1 scroll-thin">
+            {filtered.map((l, idx) => {
+              const isSelected = l.code === value;
+              const isHighlighted = idx === highlightIndex;
+              return (
+              <li key={l.code} id={`lang-opt-${l.code}`} role="option" aria-selected={isSelected}
+                onClick={() => selectOption(l.code)}
+                onMouseEnter={() => setHighlightIndex(idx)}
                 className={`px-3 py-2 cursor-pointer flex items-center gap-2 transition-colors ${
                   compact ? 'text-xs' : 'text-sm'
                 } ${
-                  l.code === value ? 'bg-[var(--color-brand-light)] text-[var(--color-brand)] font-medium' : 'hover:bg-[var(--color-border)]'
+                  isSelected ? 'bg-[var(--color-brand-light)] text-[var(--color-brand)] font-medium'
+                  : isHighlighted ? 'bg-[var(--color-border)]'
+                  : 'hover:bg-[var(--color-border)]'
                 }`}>
-                {l.code === value && <svg width="12" height="12" viewBox="0 0 16 16"><path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                <span className={l.code === value ? '' : 'ml-5'}>{l.name}</span>
+                {isSelected && <svg width="12" height="12" viewBox="0 0 16 16"><path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                <span className={isSelected ? '' : 'ml-5'}>{l.name}</span>
                 <span className="text-[var(--color-text-tertiary)] ml-auto">{l.code}</span>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       )}
@@ -75,6 +121,7 @@ interface LanguagePickerProps {
 }
 
 export default function LanguagePicker({ variant = 'full' }: LanguagePickerProps) {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { languages, loading, error, retry } = useLanguageList();
