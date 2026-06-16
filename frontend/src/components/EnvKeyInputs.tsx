@@ -3,7 +3,7 @@ import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useServiceList } from '../hooks/useServiceList';
 import { getModelSuggestions } from '../utils/modelList';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 function isApiKey(key: string, isApiKeyFlag: boolean): boolean {
   if (isApiKeyFlag) return true;
@@ -87,6 +87,7 @@ function ModelField({
 }
 
 export default function EnvKeyInputs() {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { services } = useServiceList();

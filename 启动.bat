@@ -50,6 +50,15 @@ echo [START] React frontend   : http://localhost:5173
 echo.
 
 start "PDFMathTranslate-API" cmd /k "cd /d "%~dp0" && title PDFMathTranslate API && python -m uvicorn pdf2zh.api:app --host 0.0.0.0 --port 8000 --reload"
+
+REM Wait for backend to be ready before launching frontend
+echo [WAIT]  Waiting for backend to be ready...
+:wait_backend
+timeout /t 1 /nobreak >nul
+python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')" >nul 2>&1
+if errorlevel 1 goto :wait_backend
+echo [OK]   Backend is ready.
+
 start "PDFMathTranslate-Frontend" cmd /k "cd /d "%~dp0frontend" && title PDFMathTranslate Frontend && npm run dev"
 
 echo.

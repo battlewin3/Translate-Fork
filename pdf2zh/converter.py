@@ -17,6 +17,7 @@ from tenacity import retry, wait_fixed
 
 from pdf2zh.translator import (
     AnythingLLMTranslator,
+    is_formula_only,
     ArgosTranslator,
     AzureOpenAITranslator,
     AzureTranslator,
@@ -345,23 +346,29 @@ class TranslateConverter(PDFConverterEx):
         # B. 段落翻译
         log.debug("\n==========[SSTACK]==========\n")
 
-        @retry(wait=wait_fixed(1))
-        def worker(s: str):  # 多线程翻译
-            if not s.strip() or re.match(r"^\{v\d+\}$", s):  # 空白和公式不翻译
-                return s
-            try:
-                new = self.translator.translate(s)
-                return new
-            except BaseException as e:
-                if log.isEnabledFor(logging.DEBUG):
-                    log.exception(e)
-                else:
-                    log.exception(e, exc_info=False)
-                raise e
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.thread
-        ) as executor:
-            news = list(executor.map(worker, sstk))
+        if self.translator.can_batch:
+            # LLM service — batch all paragraphs into a single API call.
+            # Dramatically reduces network round-trips (N calls → 1 call per page).
+            news = self.translator.translate_batch(sstk)
+        else:
+            # Free / API-based service — use thread pool for parallel requests.
+            @retry(wait=wait_fixed(1))
+            def worker(s: str):  # 多线程翻译
+                if is_formula_only(s):  # 空白和公式不翻译
+                    return s
+                try:
+                    new = self.translator.translate(s)
+                    return new
+                except BaseException as e:
+                    if log.isEnabledFor(logging.DEBUG):
+                        log.exception(e)
+                    else:
+                        log.exception(e, exc_info=False)
+                    raise e
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.thread
+            ) as executor:
+                news = list(executor.map(worker, sstk))
 
         ############################################################
         # C. 新文档排版

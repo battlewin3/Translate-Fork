@@ -1,22 +1,10 @@
 import { useTranslateState } from '../hooks/useTranslateState';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'uploading': return T.uploading;
-    case 'validating': return T.starting;
-    case 'translating': return T.translating;
-    case 'completed': return T.complete;
-    case 'cancelled': return T.cancelled;
-    case 'failed': return T.failed;
-    default: return '';
-  }
 }
 
 function barColor(status: string): string {
@@ -38,8 +26,21 @@ function textColor(status: string): string {
 }
 
 export default function ProgressIndicator() {
+  const T = useT();
   const state = useTranslateState();
-  const { status, progress, progressDesc, elapsedSeconds } = state;
+
+  function statusLabel(status: string): string {
+    switch (status) {
+      case 'uploading': return T.uploading;
+      case 'validating': return T.starting;
+      case 'translating': return T.translating;
+      case 'completed': return T.complete;
+      case 'cancelled': return T.cancelled;
+      case 'failed': return T.failed;
+      default: return '';
+    }
+  }
+  const { status, progress, progressDesc, phase, phasePage, phaseTotalPages, elapsedSeconds } = state;
 
   if (status === 'idle') return null;
 
@@ -47,6 +48,8 @@ export default function ProgressIndicator() {
   const eta = pct > 0 && pct < 100 && elapsedSeconds > 0
     ? Math.round((elapsedSeconds / pct) * (100 - pct))
     : null;
+
+  const phaseText = phase === 'layout' ? T.phaseLayout : phase === 'finalizing' ? T.phaseFinalizing : '';
 
   return (
     <div className="animate-slide-up space-y-2">
@@ -70,7 +73,7 @@ export default function ProgressIndicator() {
         />
       </div>
       <div className="flex items-center justify-between text-[11px] text-[var(--color-text-tertiary)]">
-        <span className="truncate mr-2">{progressDesc}</span>
+        <span className="truncate mr-2">{progressDesc || statusLabel(status)}</span>
         <div className="flex items-center gap-3 shrink-0 tabular-nums">
           {elapsedSeconds > 0 && (
             <span title={T.elapsedTime}>{formatTime(elapsedSeconds)}</span>
@@ -80,6 +83,11 @@ export default function ProgressIndicator() {
           )}
         </div>
       </div>
+      {phaseText && phaseTotalPages > 0 && (
+        <div className="text-[11px] text-[var(--color-text-tertiary)]">
+          {phaseText}{phasePage > 0 && ` · ${phasePage}/${phaseTotalPages}`}
+        </div>
+      )}
     </div>
   );
 }

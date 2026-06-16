@@ -1,6 +1,7 @@
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 export default function Footer() {
+  const T = useT();
   return (
     <footer className="pt-3 border-t border-[var(--color-border)]">
       <details className="text-[11px] text-[var(--color-text-tertiary)] group">

@@ -1,14 +1,14 @@
 import { useRef, useState, type DragEvent, type ChangeEvent } from 'react';
+import { useT } from '../i18n/useT';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
-import { T } from '../i18n/zh';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const ALLOWED_EXTS = ['.pdf', '.doc', '.docx'];
 
 function validateFile(file: File): string | null {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-  if (!ALLOWED_EXTS.includes(ext)) return T.invalidFileType;
-  if (file.size > MAX_FILE_SIZE) return T.fileTooLarge;
+  if (!ALLOWED_EXTS.includes(ext)) return 'invalidFileType';
+  if (file.size > MAX_FILE_SIZE) return 'fileTooLarge';
   return null;
 }
 
@@ -22,6 +22,7 @@ function isValidUrl(url: string): boolean {
 }
 
 export default function EmptyDropZone() {
+  const T = useT();
   const dispatch = useTranslateDispatch();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragover, setDragover] = useState(false);
@@ -33,7 +34,7 @@ export default function EmptyDropZone() {
   const handleFile = (file: File) => {
     const ve = validateFile(file);
     if (ve) {
-      setError(ve);
+      setError(ve === 'invalidFileType' ? T.invalidFileType : T.fileTooLarge);
       setTimeout(() => setError(null), 4000);
       return;
     }

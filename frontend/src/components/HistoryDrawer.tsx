@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 import type { JobHistoryEntry } from '../reducers/translateReducer';
 import { getDownloadUrl } from '../api/client';
 
@@ -34,19 +34,49 @@ function statusLabel(status: JobHistoryEntry['status']): string {
 }
 
 export function HistoryDrawer({ open, onClose, history, onClear, onRetry }: HistoryDrawerProps) {
+  const T = useT();
   const drawerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
 
+    const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        e.preventDefault();
         onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      const drawer = drawerRef.current;
+      if (!drawer) return;
+
+      const focusable = drawer.querySelectorAll<HTMLElement>(FOCUSABLE);
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     document.body.style.overflow = 'hidden';
+
+    // Focus the drawer so keyboard events are trapped
+    drawerRef.current?.focus();
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
@@ -66,10 +96,11 @@ export function HistoryDrawer({ open, onClose, history, onClear, onRetry }: Hist
       {/* Drawer */}
       <div
         ref={drawerRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={T.historyTitle}
-        className="fixed top-0 right-0 bottom-0 w-80 max-w-[85vw] bg-[var(--color-surface-elevated)] border-l border-[var(--color-border)] z-50 flex flex-col animate-[slideInRight_250ms_var(--ease-out-expo)]"
+        className="fixed top-0 right-0 bottom-0 w-80 max-w-[85vw] bg-[var(--color-surface-elevated)] border-l border-[var(--color-border)] z-50 flex flex-col animate-[slideInRight_250ms_var(--ease-out-expo)] outline-none"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
           <h2 className="text-sm font-semibold">{T.historyTitle}</h2>

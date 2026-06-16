@@ -1,5 +1,5 @@
+import { useT } from '../i18n/useT';
 import { useTranslateState } from '../hooks/useTranslateState';
-import { T } from '../i18n/zh';
 
 interface TranslateButtonProps {
   onTranslate: () => void;
@@ -8,6 +8,7 @@ interface TranslateButtonProps {
 }
 
 export default function TranslateButton({ onTranslate, onCancel, compact }: TranslateButtonProps) {
+  const T = useT();
   const state = useTranslateState();
   const isActive = state.status === 'uploading' || state.status === 'translating' || state.status === 'validating';
   const isDisabled = (!state.file && !state.url);
@@ -25,7 +26,7 @@ export default function TranslateButton({ onTranslate, onCancel, compact }: Tran
         <svg width={compact ? 12 : 14} height={compact ? 12 : 14} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.5"/>
         </svg>
-        {compact ? '取消' : T.cancel}
+        {compact ? T.cancel : T.cancel}
       </button>
     );
   }
@@ -40,7 +41,7 @@ export default function TranslateButton({ onTranslate, onCancel, compact }: Tran
       }`}
       aria-label={T.translate}
     >
-      {compact ? '翻译' : T.translate}
+      {compact ? T.translate : T.translate}
     </button>
   );
 }

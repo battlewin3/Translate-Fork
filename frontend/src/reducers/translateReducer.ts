@@ -39,6 +39,9 @@ export interface TranslateState {
   status: JobStatus;
   progress: number;
   progressDesc: string;
+  phase: string;
+  phasePage: number;
+  phaseTotalPages: number;
   error: string | null;
   resultFiles: Record<string, string>;
   elapsedSeconds: number;
@@ -64,7 +67,7 @@ export type TranslateAction =
   | { type: 'SET_ENV'; key: string; value: string }
   | { type: 'TRANSLATE_START' }
   | { type: 'TRANSLATE_UPLOADING'; progress: number }
-  | { type: 'TRANSLATE_PROGRESS'; progress: number; desc: string; elapsedSeconds?: number; jobId?: string }
+  | { type: 'TRANSLATE_PROGRESS'; progress: number; desc: string; elapsedSeconds?: number; jobId?: string; phase?: string; phasePage?: number; phaseTotal?: number }
   | { type: 'TRANSLATE_COMPLETE'; jobId: string; files: Record<string, string> }
   | { type: 'TRANSLATE_FAILED'; error: string }
   | { type: 'TRANSLATE_CANCELLED' }
@@ -86,7 +89,7 @@ export const initialState: TranslateState = {
   pageRange: 'all',
   customPages: '',
   threads: 4,
-  skipSubsetFonts: false,
+  skipSubsetFonts: true,
   ignoreCache: false,
   vfont: '',
   customPrompt: '',
@@ -97,6 +100,9 @@ export const initialState: TranslateState = {
   status: 'idle',
   progress: 0,
   progressDesc: '',
+  phase: '',
+  phasePage: 0,
+  phaseTotalPages: 0,
   error: null,
   resultFiles: {},
   elapsedSeconds: 0,
@@ -139,15 +145,18 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
     case 'SET_ENV':
       return { ...state, envs: { ...state.envs, [action.key]: action.value } };
     case 'TRANSLATE_START':
-      return { ...state, status: 'validating', progress: 0, progressDesc: '', error: null, elapsedSeconds: 0, cancelRequested: false };
+      return { ...state, status: 'validating', progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0, error: null, elapsedSeconds: 0, cancelRequested: false };
     case 'TRANSLATE_UPLOADING':
-      return { ...state, status: 'uploading', progress: action.progress, progressDesc: '上传中...' };
+      return { ...state, status: 'uploading', progress: action.progress, progressDesc: '' };
     case 'TRANSLATE_PROGRESS':
       return {
         ...state,
         status: 'translating',
         progress: action.progress,
         progressDesc: action.desc,
+        phase: action.phase ?? state.phase,
+        phasePage: action.phasePage ?? state.phasePage,
+        phaseTotalPages: action.phaseTotal ?? state.phaseTotalPages,
         jobId: action.jobId ?? state.jobId,
         elapsedSeconds: action.elapsedSeconds ?? state.elapsedSeconds,
       };
@@ -156,7 +165,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
         ...state,
         status: 'completed',
         progress: 1,
-        progressDesc: '翻译完成！',
+        progressDesc: '',
         jobId: action.jobId,
         resultFiles: action.files,
         error: null,
@@ -165,7 +174,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
     case 'TRANSLATE_FAILED':
       return { ...state, status: 'failed', error: action.error, progressDesc: '', cancelRequested: false };
     case 'TRANSLATE_CANCELLED':
-      return { ...state, status: 'cancelled', progress: 0, progressDesc: '翻译已取消', cancelRequested: false };
+      return { ...state, status: 'cancelled', progress: 0, progressDesc: '', cancelRequested: false };
     case 'TICK_ELAPSED':
       return { ...state, elapsedSeconds: action.seconds };
     case 'REQUEST_CANCEL':

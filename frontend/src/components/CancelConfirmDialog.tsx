@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 interface CancelConfirmDialogProps {
   open: boolean;
@@ -9,6 +9,7 @@ interface CancelConfirmDialogProps {
 }
 
 export function CancelConfirmDialog({ open, onConfirm, onDismiss }: CancelConfirmDialogProps) {
+  const T = useT();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // Sync open state with native dialog showModal/close

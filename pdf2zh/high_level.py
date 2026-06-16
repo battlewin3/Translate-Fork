@@ -124,6 +124,10 @@ def translate_patch(
             if pages and (pageno not in pages):
                 continue
             progress.update()
+            # Annotate tqdm object with phase metadata for richer SSE progress
+            progress.phase = "layout"
+            progress.page = pageno + 1
+            progress.total_pages = total_pages
             if callback:
                 callback(progress)
             page.pageno = pageno

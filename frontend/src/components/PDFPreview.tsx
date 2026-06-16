@@ -1,10 +1,11 @@
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 interface PDFPreviewProps {
   fileUrl: string | null;
 }
 
 export default function PDFPreview({ fileUrl }: PDFPreviewProps) {
+  const T = useT();
   if (!fileUrl) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-[var(--color-text-tertiary)] gap-3 px-4">

@@ -1,4 +1,4 @@
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 interface ErrorBannerProps {
   error: string | null;
@@ -8,12 +8,13 @@ interface ErrorBannerProps {
 }
 
 export function ErrorBanner({ error, onDismiss, onRetry, retryLabel }: ErrorBannerProps) {
+  const T = useT();
   if (!error) return null;
 
   return (
     <div
       role="alert"
-      className="mx-5 p-3 bg-[var(--color-error-light)] border-l-2 border-[var(--color-error)] rounded-r-lg text-sm text-[var(--color-error)] animate-[slideDown_200ms_var(--ease-out-expo)]"
+      className="mx-5 p-3 bg-[var(--color-error-light)] border border-[var(--color-error)]/20 rounded-lg text-sm text-[var(--color-error)] animate-[slideDown_200ms_var(--ease-out-expo)]"
     >
       <div className="flex items-start gap-2">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="mt-0.5 shrink-0" aria-hidden="true">

@@ -31,9 +31,6 @@
   /* Typography */
   --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, sans-serif;
 
-  /* Layout */
-  --toolbar-height: 56px;
-
   /* Animation */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --transition-fast: 150ms;
@@ -52,9 +49,16 @@ body {
 }
 
 /* ===== Dark Mode ===== */
+/*
+ * Strategy: @theme defines light defaults.
+ * - System dark (no manual class): media query applies dark.
+ * - html.light: blocks the media query via :root:not(.light), restoring @theme light defaults.
+ * - html.dark: forces dark regardless of OS preference.
+ */
 
+/* System-level auto dark (respects manual light override) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light) {
     --color-surface: #09090B;
     --color-surface-elevated: #18181B;
     --color-surface-overlay: #27272A;
@@ -74,13 +78,13 @@ body {
     --color-warning-light: #451A03;
   }
 
-  body {
+  :root:not(.light) body {
     background-color: var(--color-surface);
     color: var(--color-text-primary);
   }
 }
 
-/* Manual dark mode class (overrides media query) */
+/* Manual dark mode override (forces dark regardless of OS preference) */
 html.dark {
   --color-surface: #09090B;
   --color-surface-elevated: #18181B;
@@ -106,31 +110,9 @@ html.dark body {
   color: var(--color-text-primary);
 }
 
-/* Manual light mode class (overrides media query) */
-html.light {
-  --color-surface: #F8FAFC;
-  --color-surface-elevated: #FFFFFF;
-  --color-surface-overlay: #FFFFFF;
-  --color-border: #E2E8F0;
-  --color-border-focus: #165DFF;
-  --color-text-primary: #1E293B;
-  --color-text-secondary: #64748B;
-  --color-text-tertiary: #94A3B8;
-  --color-brand: #165DFF;
-  --color-brand-deep: #0E42D2;
-  --color-brand-light: #E8F3FF;
-  --color-success: #16A34A;
-  --color-success-light: #DCFCE7;
-  --color-error: #DC2626;
-  --color-error-light: #FEE2E2;
-  --color-warning: #D97706;
-  --color-warning-light: #FEF3C7;
-}
-
-html.light body {
-  background-color: var(--color-surface);
-  color: var(--color-text-primary);
-}
+/* Light mode — no variable block needed.
+   The @theme defaults are light, and the media query excludes .light via :root:not(.light).
+   The ThemeToggle adds/removes the .light class to signal "use light defaults." */
 
 /* Theme transition */
 body {
@@ -140,8 +122,8 @@ body {
 /* ===== Scrollbar ===== */
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -181,6 +163,27 @@ body {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* ===== Skip Link ===== */
+
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--color-brand);
+  color: #fff;
+  border-radius: 0 0 8px 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: top 200ms var(--ease-out-expo);
+}
+
+.skip-link:focus {
+  top: 0;
 }
 
 /* ===== Utility ===== */
@@ -235,15 +238,6 @@ dialog[open] {
   animation: dialog-in 200ms var(--ease-out-expo) forwards;
 }
 
-/* ===== Layout Shell ===== */
-
-.app-shell {
-  display: grid;
-  grid-template-rows: var(--toolbar-height) 1fr;
-  height: 100dvh;
-  overflow: hidden;
-}
-
 /* ===== Settings Panel Animation ===== */
 
 @keyframes panel-slide-in {
@@ -282,15 +276,3 @@ dialog[open] {
   animation: backdrop-fade-out 200ms var(--ease-out-expo) forwards;
 }
 
-/* ===== Toolbar ===== */
-
-.toolbar-btn {
-  @apply flex items-center justify-center w-9 h-9 rounded-lg text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-border)] transition-colors cursor-pointer;
-}
-
-.toolbar-divider {
-  width: 1px;
-  height: 24px;
-  background: var(--color-border);
-  flex-shrink: 0;
-}

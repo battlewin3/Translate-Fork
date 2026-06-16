@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 export default function URLInput() {
+  const T = useT();
   const dispatch = useTranslateDispatch();
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | null>(null);

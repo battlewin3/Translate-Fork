@@ -20,10 +20,29 @@ export interface StorablePreferences {
   url: string;
 }
 
+/** Whitelist of known preference keys — anything else in stored data is ignored. */
+const VALID_KEYS: Set<string> = new Set([
+  'service', 'langFrom', 'langTo', 'outputMode', 'pageRange',
+  'customPages', 'threads', 'skipSubsetFonts', 'ignoreCache',
+  'vfont', 'customPrompt', 'translateMode', 'envs',
+  'fileInputType', 'url',
+]);
+
 export function loadPreferences(): Partial<StorablePreferences> {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const filtered: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (VALID_KEYS.has(key)) {
+        filtered[key] = value;
+      }
+    }
+    return filtered as Partial<StorablePreferences>;
   } catch {
     return {};
   }

@@ -19,7 +19,7 @@ import { CancelConfirmDialog } from './CancelConfirmDialog';
 import { ThemeToggle } from './ThemeToggle';
 import Footer from './Footer';
 import { testService } from '../api/client';
-import { T } from '../i18n/zh';
+import { useT } from '../i18n/useT';
 
 interface SidebarProps {
   onHistoryOpen: () => void;
@@ -27,6 +27,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
+  const T = useT();
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { start, cancel, confirmCancel, dismissCancel, retry, cancelRequested } = useTranslation();

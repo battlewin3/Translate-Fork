@@ -26,7 +26,7 @@ export interface JobStatus {
   error?: string;
 }
 
-export interface ProgressEvent {
+export interface SSEProgressEvent {
   progress: number;
   desc: string;
   status: string;
@@ -46,16 +46,67 @@ export async function fetchLanguages(): Promise<Language[]> {
   return data.languages;
 }
 
-export async function startTranslation(formData: FormData): Promise<{ job_id: string }> {
-  const res = await fetch(`${API_BASE}/translate`, {
-    method: 'POST',
-    body: formData,
+/**
+ * Upload with progress reporting. Uses XMLHttpRequest so we can track
+ * upload progress for large files.
+ */
+export function startTranslationWithProgress(
+  formData: FormData,
+  onProgress: (pct: number) => void,
+  signal?: AbortSignal,
+): Promise<{ job_id: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/translate`);
+
+    const onAbort = () => {
+      xhr.abort();
+      reject(new Error('Upload aborted'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    const onProgressHandler = (e: ProgressEvent<XMLHttpRequestEventTarget>) => {
+      if (e.lengthComputable) {
+        onProgress(e.loaded / e.total);
+      }
+    };
+    xhr.upload.addEventListener('progress', onProgressHandler);
+
+    const cleanup = () => {
+      signal?.removeEventListener('abort', onAbort);
+      xhr.upload.removeEventListener('progress', onProgressHandler);
+    };
+
+    xhr.addEventListener('load', () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Invalid response from server'));
+        }
+      } else {
+        let detail = 'Unknown error';
+        try {
+          const err = JSON.parse(xhr.responseText);
+          detail = err.detail || detail;
+        } catch { /* use default */ }
+        reject(new Error(detail || `Request failed: ${xhr.status}`));
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      cleanup();
+      reject(new Error('Network error during upload'));
+    });
+
+    xhr.addEventListener('abort', () => {
+      cleanup();
+      reject(new Error('Upload aborted'));
+    });
+
+    xhr.send(formData);
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: '未知错误' }));
-    throw new Error(err.detail || `请求失败: ${res.status}`);
-  }
-  return res.json();
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatus> {

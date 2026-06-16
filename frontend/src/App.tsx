@@ -1,14 +1,17 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState, lazy, Suspense } from 'react';
 import { TranslateStateContext } from './context/TranslateStateContext';
 import { TranslateDispatchContext } from './context/TranslateDispatchContext';
 import { translateReducer, initialState } from './reducers/translateReducer';
 import { loadPreferences, savePreferences } from './utils/preferences';
 import { useJobHistory } from './hooks/useJobHistory';
-import { ToastContainer } from './components/ToastContainer';
+import { LocaleProvider } from './i18n/context';
 import Sidebar from './components/Sidebar';
-import { HistoryDrawer } from './components/HistoryDrawer';
 import Layout from './components/Layout';
 import PreviewArea from './components/PreviewArea';
+
+// Lazy-loaded non-critical components
+const HistoryDrawer = lazy(() => import('./components/HistoryDrawer').then(m => ({ default: m.HistoryDrawer })));
+const ToastContainer = lazy(() => import('./components/ToastContainer').then(m => ({ default: m.ToastContainer })));
 
 export default function App() {
   const [state, dispatch] = useReducer(translateReducer, initialState);
@@ -74,6 +77,7 @@ export default function App() {
   }, [ready, state]);
 
   return (
+    <LocaleProvider>
     <TranslateStateContext.Provider value={state}>
       <TranslateDispatchContext.Provider value={dispatch}>
         <Layout
@@ -85,21 +89,28 @@ export default function App() {
           }
           mainArea={<PreviewArea previewUrl={previewUrl} />}
         />
-        <HistoryDrawer
-          open={historyOpen}
-          onClose={() => setHistoryOpen(false)}
-          history={history}
-          onClear={clearHistory}
-          onRetry={(entry) => {
-            dispatch({ type: 'SET_SERVICE', service: entry.service });
-            dispatch({ type: 'SET_LANG_FROM', lang: entry.langFrom });
-            dispatch({ type: 'SET_LANG_TO', lang: entry.langTo });
-            dispatch({ type: 'SET_OUTPUT_MODE', mode: entry.outputMode });
-            setHistoryOpen(false);
-          }}
-        />
-        <ToastContainer />
+        <Suspense fallback={null}>
+          {historyOpen && (
+            <HistoryDrawer
+              open={historyOpen}
+              onClose={() => setHistoryOpen(false)}
+              history={history}
+              onClear={clearHistory}
+              onRetry={(entry) => {
+                dispatch({ type: 'SET_SERVICE', service: entry.service });
+                dispatch({ type: 'SET_LANG_FROM', lang: entry.langFrom });
+                dispatch({ type: 'SET_LANG_TO', lang: entry.langTo });
+                dispatch({ type: 'SET_OUTPUT_MODE', mode: entry.outputMode });
+                setHistoryOpen(false);
+              }}
+            />
+          )}
+        </Suspense>
+        <Suspense fallback={null}>
+          <ToastContainer />
+        </Suspense>
       </TranslateDispatchContext.Provider>
     </TranslateStateContext.Provider>
+    </LocaleProvider>
   );
 }
