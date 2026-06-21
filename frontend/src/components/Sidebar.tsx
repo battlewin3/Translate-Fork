@@ -139,8 +139,8 @@ export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
             <svg width="32" height="32" viewBox="0 0 16 16" className="mx-auto text-[var(--color-text-tertiary)] mb-3">
               <path d="M8 2v8M5 6l3-3 3 3M2 12v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            <p className="text-xs text-[var(--color-text-tertiary)]">拖放文件到右侧预览区</p>
-            <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">上传后此处显示编辑选项</p>
+            <p className="text-xs text-[var(--color-text-tertiary)]">{T.noFileHint}</p>
+            <p className="text-[10px] text-[var(--color-text-tertiary)] mt-1">{T.noFileHintSub}</p>
           </div>
         )}
 
@@ -197,7 +197,7 @@ export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
             }}
             className="w-full text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] transition-colors py-1"
           >
-            重置为默认设置
+            {T.resetToDefault}
           </button>
         </CollapsibleSection>
       </div>

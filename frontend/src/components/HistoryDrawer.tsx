@@ -11,13 +11,13 @@ interface HistoryDrawerProps {
   onRetry: (entry: JobHistoryEntry) => void;
 }
 
-function formatTime(ts: number): string {
+function formatTime(ts: number, t: { today: string }): string {
   const d = new Date(ts);
   const now = new Date();
   const isToday = d.toDateString() === now.toDateString();
-  const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  if (isToday) return `今天 ${time}`;
-  const date = d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return `${t.today} ${time}`;
+  const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${date} ${time}`;
 }
 
@@ -27,10 +27,10 @@ function statusDot(status: JobHistoryEntry['status']): string {
   return 'bg-[var(--color-text-tertiary)]';
 }
 
-function statusLabel(status: JobHistoryEntry['status']): string {
-  if (status === 'completed') return '完成';
-  if (status === 'failed') return '失败';
-  return '已取消';
+function statusLabel(status: JobHistoryEntry['status'], t: { statusCompleted: string; statusFailed: string; statusCancelled: string }): string {
+  if (status === 'completed') return t.statusCompleted;
+  if (status === 'failed') return t.statusFailed;
+  return t.statusCancelled;
 }
 
 export function HistoryDrawer({ open, onClose, history, onClear, onRetry }: HistoryDrawerProps) {
@@ -139,9 +139,9 @@ export function HistoryDrawer({ open, onClose, history, onClear, onRetry }: Hist
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-[var(--color-text-tertiary)]">
-                    {formatTime(entry.timestamp)}
+                    {formatTime(entry.timestamp, T)}
                     {' '}
-                    <span className="text-[var(--color-text-secondary)]">{statusLabel(entry.status)}</span>
+                    <span className="text-[var(--color-text-secondary)]">{statusLabel(entry.status, T)}</span>
                   </span>
                   <div className="flex gap-1">
                     {entry.status === 'completed' && entry.files && (

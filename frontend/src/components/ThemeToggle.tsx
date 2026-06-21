@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useT } from '../i18n/useT';
 
 type Theme = 'system' | 'light' | 'dark';
 
@@ -24,6 +25,7 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeToggle() {
+  const T = useT();
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export function ThemeToggle() {
   };
 
   const label =
-    theme === 'dark' ? '深色模式' : theme === 'light' ? '浅色模式' : '跟随系统';
+    theme === 'dark' ? T.themeDark : theme === 'light' ? T.themeLight : T.themeSystem;
 
   return (
     <button

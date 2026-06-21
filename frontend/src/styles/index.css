@@ -238,6 +238,26 @@ dialog[open] {
   animation: dialog-in 200ms var(--ease-out-expo) forwards;
 }
 
+/* ===== Dropdown & Notification Animations ===== */
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  to   { opacity: 1; transform: translateY(0); max-height: 200px; }
+}
+
+.animate-dropdown-in {
+  animation: dropdownIn 150ms var(--ease-out-expo) forwards;
+}
+
+.animate-slide-down {
+  animation: slideDown 200ms var(--ease-out-expo) forwards;
+}
+
 /* ===== Settings Panel Animation ===== */
 
 @keyframes panel-slide-in {

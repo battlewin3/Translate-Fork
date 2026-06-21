@@ -43,11 +43,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-backend = [
-    "flask",
-    "celery",
-    "redis"
-]
 argostranslate = [
     "argostranslate"
 ]

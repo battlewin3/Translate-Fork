@@ -111,16 +111,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Enable Gradio Share",
     )
     parse_params.add_argument(
-        "--flask",
-        action="store_true",
-        help="flask",
-    )
-    parse_params.add_argument(
-        "--celery",
-        action="store_true",
-        help="celery",
-    )
-    parse_params.add_argument(
         "--authorized",
         type=str,
         nargs="+",
@@ -297,18 +287,6 @@ def main(args: Optional[List[str]] = None) -> int:
             setup_gui(parsed_args.share, parsed_args.authorized)
         return 0
 
-    if parsed_args.flask:
-        from pdf2zh.backend import flask_app
-
-        flask_app.run(port=11008)
-        return 0
-
-    if parsed_args.celery:
-        from pdf2zh.backend import celery_app
-
-        celery_app.start(argv=sys.argv[2:])
-        return 0
-
     if parsed_args.prompt:
         try:
             with open(parsed_args.prompt, "r", encoding="utf-8") as file:
@@ -413,69 +391,19 @@ def yadt_main(parsed_args) -> int:
         except Exception:
             raise ValueError("prompt error.")
 
-    from pdf2zh.translator import (
-        AzureOpenAITranslator,
-        GoogleTranslator,
-        BingTranslator,
-        DeepLTranslator,
-        DeepLXTranslator,
-        OllamaTranslator,
-        OpenAITranslator,
-        ZhipuTranslator,
-        ModelScopeTranslator,
-        SiliconTranslator,
-        GeminiTranslator,
-        AzureTranslator,
-        TencentTranslator,
-        DifyTranslator,
-        AnythingLLMTranslator,
-        XinferenceTranslator,
-        ArgosTranslator,
-        GrokTranslator,
-        GroqTranslator,
-        DeepseekTranslator,
-        OpenAIlikedTranslator,
-        QwenMtTranslator,
-        X302AITranslator,
-    )
+    from pdf2zh.translator import TranslatorRegistry
 
-    for translator in [
-        GoogleTranslator,
-        BingTranslator,
-        DeepLTranslator,
-        DeepLXTranslator,
-        OllamaTranslator,
-        XinferenceTranslator,
-        AzureOpenAITranslator,
-        OpenAITranslator,
-        ZhipuTranslator,
-        ModelScopeTranslator,
-        SiliconTranslator,
-        GeminiTranslator,
-        AzureTranslator,
-        TencentTranslator,
-        DifyTranslator,
-        AnythingLLMTranslator,
-        ArgosTranslator,
-        GrokTranslator,
-        GroqTranslator,
-        DeepseekTranslator,
-        OpenAIlikedTranslator,
-        QwenMtTranslator,
-        X302AITranslator,
-    ]:
-        if service_name == translator.name:
-            translator = translator(
-                lang_in,
-                lang_out,
-                service_model,
-                envs=envs,
-                prompt=prompt,
-                ignore_cache=ignore_cache,
-            )
-            break
-    else:
-        raise ValueError("Unsupported translation service")
+    translator_cls = TranslatorRegistry.get(service_name)
+    if translator_cls is None:
+        raise ValueError(f"Unsupported translation service: {service_name}")
+    translator = translator_cls(
+        lang_in,
+        lang_out,
+        service_model,
+        envs=envs,
+        prompt=prompt,
+        ignore_cache=ignore_cache,
+    )
     import asyncio
 
     for file in untranlate_file:

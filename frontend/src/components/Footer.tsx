@@ -9,9 +9,9 @@ export default function Footer() {
           {T.techDetails}
         </summary>
         <div className="mt-2 space-y-1 pl-1">
-          <p>前端: React + TypeScript + Vite + Tailwind CSS 4</p>
-          <p>后端: FastAPI (Python) - 端口 8000</p>
-          <p>引擎: pdf2zh - PDF 数学公式翻译</p>
+          <p>Frontend: React + TypeScript + Vite + Tailwind CSS 4</p>
+          <p>Backend: FastAPI (Python) — port 8000</p>
+          <p>Engine: pdf2zh — PDF Math Translation</p>
           <a
             href="https://github.com/PDFMathTranslate/PDFMathTranslate"
             target="_blank"

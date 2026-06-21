@@ -128,7 +128,7 @@ export default function EmptyDropZone() {
                 onClick={handleUrlSubmit}
                 className="px-4 h-9 text-sm font-medium rounded-lg bg-[var(--color-brand)] text-white hover:opacity-90 transition-opacity"
               >
-                确认
+                {T.confirm}
               </button>
             </div>
             {urlError && (
@@ -139,7 +139,7 @@ export default function EmptyDropZone() {
               onClick={() => { setShowUrlInput(false); setUrlValue(''); setUrlError(null); }}
               className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
             >
-              返回文件上传
+              {T.backToFile}
             </button>
           </div>
         ) : (
