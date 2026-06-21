@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useId, type ReactNode } from 'react';
 
 interface CollapsibleSectionProps {
   title: string;
@@ -12,12 +12,16 @@ export default function CollapsibleSection({
   children,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const id = useId();
+  const panelId = `panel-${id}`;
 
   return (
     <div className="border-t border-[var(--color-border)] pt-3">
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={panelId}
         className="w-full flex items-center justify-between py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
       >
         <span>{title}</span>
@@ -30,7 +34,7 @@ export default function CollapsibleSection({
       </button>
 
       {open && (
-        <div className="mt-3 space-y-4 animate-[dropdownIn_150ms_ease-out]">
+        <div id={panelId} role="region" className="mt-3 space-y-4 animate-[dropdownIn_150ms_ease-out]">
           {children}
         </div>
       )}

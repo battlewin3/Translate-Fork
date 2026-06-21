@@ -9,9 +9,11 @@ Provides REST endpoints for the React frontend to:
 """
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -23,28 +25,15 @@ from sse_starlette.sse import EventSourceResponse
 
 from pdf2zh.config import ConfigManager
 
-# --- Lazy-load translator classes to avoid hard dependency on all services ---
+# --- Lazy-load translator classes via the auto-registering registry ---
+# Import the module so all BaseTranslator subclasses self-register.
+import pdf2zh.translator  # noqa: F401 — side-effect: populates TranslatorRegistry
 
-_SERVICE_CLASS_NAMES = [
-    "GoogleTranslator", "BingTranslator", "DeepLTranslator", "DeepLXTranslator",
-    "AzureTranslator", "AzureOpenAITranslator", "OpenAITranslator",
-    "OllamaTranslator", "GeminiTranslator", "GrokTranslator", "GroqTranslator",
-    "DeepseekTranslator", "ZhipuTranslator", "ModelScopeTranslator",
-    "SiliconTranslator", "MiniMaxTranslator", "XinferenceTranslator",
-    "TencentTranslator", "AnythingLLMTranslator", "DifyTranslator",
-    "QwenMtTranslator", "ArgosTranslator",
-]
+from pdf2zh.translator import TranslatorRegistry
 
-SERVICE_REGISTRY = []
+from pdf2zh import __version__
 
-for _name in _SERVICE_CLASS_NAMES:
-    try:
-        _cls = getattr(__import__("pdf2zh.translator", fromlist=[_name]), _name)
-        SERVICE_REGISTRY.append(_cls)
-    except ImportError:
-        pass  # Skip translators whose dependencies are not installed
-
-app = FastAPI(title="PDFMathTranslate API", version="1.9.11")
+app = FastAPI(title="PDFMathTranslate API", version=__version__)
 
 
 def _ensure_model_loaded():
@@ -56,7 +45,7 @@ def _ensure_model_loaded():
 
 
 @app.on_event("startup")
-async def startup_warmup():
+def startup_warmup():
     """Preload the ONNX layout model so the first translation request
     does not pay a 2–5 second cold-start penalty."""
     _ensure_model_loaded()
@@ -88,7 +77,7 @@ lang_map = {
 enabled_names = os.environ.get("ENABLED_SERVICES", "").split(",")
 enabled_names = [n.strip() for n in enabled_names if n.strip()]
 ENABLED_SERVICES = [
-    s for s in SERVICE_REGISTRY
+    s for s in TranslatorRegistry.list_all()
     if not enabled_names or s.name in enabled_names
 ]
 
@@ -97,11 +86,34 @@ ENABLED_SERVICES = [
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
+_translation_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_loop_ref: asyncio.AbstractEventLoop | None = None
+
+
+@app.on_event("startup")
+def _cache_event_loop() -> None:
+    """Store the event loop reference so background threads can signal SSE."""
+    global _loop_ref
+    _loop_ref = asyncio.get_running_loop()
+
+
+@app.on_event("startup")
+def _cleanup_old_uploads() -> None:
+    """Remove uploaded/translated files older than 1 hour."""
+    cutoff = time.time() - 3600
+    upload_dir = Path("pdf2zh_files")
+    if upload_dir.is_dir():
+        for child in upload_dir.iterdir():
+            try:
+                if child.stat().st_mtime < cutoff:
+                    child.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "1.9.11"}
+    return {"status": "ok", "version": __version__}
 
 
 @app.get("/api/services")
@@ -154,10 +166,13 @@ async def start_translation(
     job_id = str(uuid.uuid4())
     envs = json.loads(envs_json) if envs_json else {}
 
-    # Save uploaded file
-    upload_dir = Path("pdf2zh_files")
+    # Save uploaded file (sanitize filename to prevent path traversal)
+    upload_dir = Path("pdf2zh_files").resolve()
     upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / f"{job_id}_{file.filename}"
+    safe_name = os.path.basename(file.filename) or "uploaded.pdf"
+    file_path = (upload_dir / f"{job_id}_{safe_name}").resolve()
+    if not file_path.is_relative_to(upload_dir):
+        raise HTTPException(status_code=400, detail="Invalid filename")
     content = await file.read()
     with open(file_path, "wb") as f:
         f.write(content)
@@ -181,6 +196,8 @@ async def start_translation(
         selected_pages = page_map_dict.get(page_range, [])
 
     # Store job
+    original_name = os.path.splitext(safe_name)[0]
+    sse_queue: asyncio.Queue = asyncio.Queue()
     with jobs_lock:
         jobs[job_id] = {
             "status": "queued",
@@ -189,11 +206,17 @@ async def start_translation(
             "files": None,
             "error": None,
             "cancel_event": threading.Event(),
+            "original_name": original_name,
+            "sse_queue": sse_queue,
         }
 
-    # Start translation in background thread
-    import threading as th
+    def _push_sse(data: dict) -> None:
+        """Thread-safe helper: push a progress snapshot to the SSE queue."""
+        loop = _loop_ref
+        if loop is not None:
+            loop.call_soon_threadsafe(sse_queue.put_nowait, data)
 
+    # Start translation in background thread via thread-pool executor
     def run_translation():
         try:
             with jobs_lock:
@@ -211,12 +234,18 @@ async def start_translation(
             def progress_cb(t):
                 pct = t.n / t.total if t.total else 0
                 desc = getattr(t, "desc", "") or "正在翻译..."
+                snapshot = {
+                    "progress": pct,
+                    "desc": desc,
+                    "status": "running",
+                    "error": None,
+                    "phase": getattr(t, "phase", ""),
+                    "phase_page": getattr(t, "page", 0),
+                    "phase_total": getattr(t, "total_pages", 0),
+                }
                 with jobs_lock:
-                    jobs[job_id]["progress"] = pct
-                    jobs[job_id]["desc"] = desc
-                    jobs[job_id]["phase"] = getattr(t, "phase", "")
-                    jobs[job_id]["phase_page"] = getattr(t, "page", 0)
-                    jobs[job_id]["phase_total"] = getattr(t, "total_pages", 0)
+                    jobs[job_id].update(snapshot)
+                _push_sse(snapshot)
 
             output = str(upload_dir)
 
@@ -255,21 +284,24 @@ async def start_translation(
                     files_output["side"] = side_path
 
             with jobs_lock:
-                jobs[job_id]["status"] = "completed"
-                jobs[job_id]["progress"] = 1.0
-                jobs[job_id]["desc"] = "翻译完成！"
-                jobs[job_id]["files"] = files_output
+                jobs[job_id].update({
+                    "status": "completed",
+                    "progress": 1.0,
+                    "desc": "翻译完成！",
+                    "files": files_output,
+                })
+            _push_sse({"progress": 1.0, "desc": "翻译完成！", "status": "completed", "error": None, "phase": "finalizing", "phase_page": 0, "phase_total": 0})
 
         except asyncio.CancelledError:
             with jobs_lock:
-                jobs[job_id]["status"] = "cancelled"
-                jobs[job_id]["desc"] = "翻译已取消"
+                jobs[job_id].update({"status": "cancelled", "desc": "翻译已取消"})
+            _push_sse({"progress": 0, "desc": "翻译已取消", "status": "cancelled", "error": None, "phase": "", "phase_page": 0, "phase_total": 0})
         except Exception as e:
             with jobs_lock:
-                jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = str(e)
+                jobs[job_id].update({"status": "failed", "error": str(e)})
+            _push_sse({"progress": 0, "desc": str(e), "status": "failed", "error": str(e), "phase": "", "phase_page": 0, "phase_total": 0})
 
-    th.Thread(target=run_translation, daemon=True).start()
+    _translation_executor.submit(run_translation)
 
     return {"job_id": job_id, "status": "queued"}
 
@@ -294,46 +326,53 @@ async def get_job_status(job_id: str):
 
 @app.get("/api/translate/{job_id}/progress")
 async def job_progress(job_id: str):
-    """SSE endpoint for real-time translation progress."""
+    """SSE endpoint for real-time translation progress (event-driven, no polling)."""
     async def event_generator():
-        import time
-        last_hash = None
-        while True:
-            with jobs_lock:
-                job = jobs.get(job_id)
-            if not job:
-                break
+        with jobs_lock:
+            job = jobs.get(job_id)
+            sse_queue = job.get("sse_queue") if job else None
 
-            # Only yield when job state actually changed
-            snapshot = (
-                job["progress"],
-                job["desc"],
-                job["status"],
-                job.get("error"),
-                job.get("phase", ""),
-                job.get("phase_page", 0),
-                job.get("phase_total", 0),
-            )
-            current_hash = hash(snapshot)
-            if current_hash != last_hash:
-                last_hash = current_hash
-                yield {
-                    "event": "progress",
-                    "data": json.dumps({
-                        "progress": snapshot[0],
-                        "desc": snapshot[1],
-                        "status": snapshot[2],
-                        "error": snapshot[3],
-                        "phase": snapshot[4],
-                        "phase_page": snapshot[5],
-                        "phase_total": snapshot[6],
-                    })
-                }
+        if sse_queue is None:
+            yield {"event": "error", "data": json.dumps({"error": "Job not found"})}
+            return
 
+        # Send initial state immediately
+        with jobs_lock:
+            job = jobs.get(job_id)
+        if job:
+            yield {
+                "event": "progress",
+                "data": json.dumps({
+                    "progress": job["progress"],
+                    "desc": job["desc"],
+                    "status": job["status"],
+                    "error": job.get("error"),
+                    "phase": job.get("phase", ""),
+                    "phase_page": job.get("phase_page", 0),
+                    "phase_total": job.get("phase_total", 0),
+                })
+            }
+
+            # If already terminal, stop
             if job["status"] in ("completed", "failed", "cancelled"):
-                break
+                return
 
-            await asyncio.sleep(0.5)
+        # Wait for push events from the background thread
+        while True:
+            try:
+                # Block for up to 30 s; send a keepalive comment to avoid proxy timeouts
+                snapshot = await asyncio.wait_for(sse_queue.get(), timeout=30)
+            except asyncio.TimeoutError:
+                yield {"comment": ""}
+                continue
+
+            yield {
+                "event": "progress",
+                "data": json.dumps(snapshot),
+            }
+
+            if snapshot.get("status") in ("completed", "failed", "cancelled"):
+                break
 
     return EventSourceResponse(event_generator())
 
@@ -356,10 +395,11 @@ async def download_file(job_id: str, file_type: str):
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    filename = os.path.basename(file_path)
+    original_name = job.get("original_name", "translated")
+    download_filename = f"{original_name}-{file_type}.pdf"
     return FileResponse(
         path=file_path,
-        filename=filename,
+        filename=download_filename,
         media_type="application/pdf",
     )
 
@@ -373,12 +413,7 @@ async def test_service(
     import time
 
     envs = json.loads(envs_json) if envs_json else {}
-    translator_cls = None
-    for cls in ENABLED_SERVICES:
-        if cls.name == service:
-            translator_cls = cls
-            break
-
+    translator_cls = TranslatorRegistry.get(service)
     if translator_cls is None:
         raise HTTPException(status_code=404, detail=f"Service not found: {service}")
 

@@ -100,10 +100,13 @@ class ConfigManager:
             return instance._config_data[key]
 
         # 若环境变量中存在该 key，则使用环境变量并写回 config
+        # 但 API 密钥等敏感信息不写入磁盘明文持久化
         if key in os.environ:
             value = os.environ[key]
-            instance._config_data[key] = value
-            instance._save_config()
+            _SENSITIVE_PATTERNS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY")
+            if not any(pat in key.upper() for pat in _SENSITIVE_PATTERNS):
+                instance._config_data[key] = value
+                instance._save_config()
             return value
 
         # 若 default 不为 None，则设置并保存

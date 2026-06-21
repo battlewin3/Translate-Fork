@@ -92,6 +92,46 @@ export function useTranslation() {
     [dispatch, state.jobId, state.file, state.url, state.service, state.langFrom, state.langTo, state.outputMode, addEntry]
   );
 
+  // Fallback polling when SSE fails — must be declared BEFORE handleSSEError
+  // to avoid TDZ ReferenceError (pollJobStatus is a const, not a hoisted function).
+  const pollJobStatus = useCallback(async () => {
+    if (!state.jobId) return;
+    try {
+      const job = await apiGetJobStatus(state.jobId);
+      if (job.status === 'completed') {
+        dispatch({
+          type: 'TRANSLATE_COMPLETE',
+          jobId: state.jobId,
+          files: job.files || {},
+        });
+        addEntry({
+          jobId: state.jobId,
+          timestamp: Date.now(),
+          fileName: state.file?.name || state.url || 'unknown',
+          service: state.service,
+          langFrom: state.langFrom,
+          langTo: state.langTo,
+          outputMode: state.outputMode,
+          status: 'completed',
+          files: job.files || {},
+        });
+        stopElapsed();
+      } else if (job.status === 'failed') {
+        dispatch({ type: 'TRANSLATE_FAILED', error: job.error || '翻译失败' });
+        stopElapsed();
+      } else if (job.status === 'cancelled') {
+        dispatch({ type: 'TRANSLATE_CANCELLED' });
+        stopElapsed();
+      } else {
+        dispatch({ type: 'TRANSLATE_PROGRESS', progress: job.progress, desc: job.desc });
+        setTimeout(pollJobStatus, 2000);
+      }
+    } catch (err) {
+      dispatch({ type: 'TRANSLATE_FAILED', error: err instanceof Error ? err.message : '连接失败' });
+      stopElapsed();
+    }
+  }, [state.jobId, dispatch, addEntry, state.file, state.url, state.service, state.langFrom, state.langTo, state.outputMode]);
+
   const handleSSEError = useCallback(
     (error: string) => {
       if (sseRetryCount.current < SSE_RETRY_MAX) {
@@ -102,7 +142,7 @@ export function useTranslation() {
         pollJobStatus();
       }
     },
-    [state.jobId]
+    [pollJobStatus]
   );
 
   const handleSSEComplete = useCallback(() => {
@@ -142,45 +182,6 @@ export function useTranslation() {
   useEffect(() => {
     return () => stopElapsed();
   }, []);
-
-  // Fallback polling when SSE fails
-  const pollJobStatus = useCallback(async () => {
-    if (!state.jobId) return;
-    try {
-      const job = await apiGetJobStatus(state.jobId);
-      if (job.status === 'completed') {
-        dispatch({
-          type: 'TRANSLATE_COMPLETE',
-          jobId: state.jobId,
-          files: job.files || {},
-        });
-        addEntry({
-          jobId: state.jobId,
-          timestamp: Date.now(),
-          fileName: state.file?.name || state.url || 'unknown',
-          service: state.service,
-          langFrom: state.langFrom,
-          langTo: state.langTo,
-          outputMode: state.outputMode,
-          status: 'completed',
-          files: job.files || {},
-        });
-        stopElapsed();
-      } else if (job.status === 'failed') {
-        dispatch({ type: 'TRANSLATE_FAILED', error: job.error || '翻译失败' });
-        stopElapsed();
-      } else if (job.status === 'cancelled') {
-        dispatch({ type: 'TRANSLATE_CANCELLED' });
-        stopElapsed();
-      } else {
-        dispatch({ type: 'TRANSLATE_PROGRESS', progress: job.progress, desc: job.desc });
-        setTimeout(pollJobStatus, 2000);
-      }
-    } catch (err) {
-      dispatch({ type: 'TRANSLATE_FAILED', error: err instanceof Error ? err.message : '连接失败' });
-      stopElapsed();
-    }
-  }, [state.jobId, dispatch, addEntry, state.file, state.url, state.service, state.langFrom, state.langTo, state.outputMode]);
 
   // Start translation
   const start = useCallback(async () => {

@@ -12,7 +12,7 @@ export function CancelConfirmDialog({ open, onConfirm, onDismiss }: CancelConfir
   const T = useT();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  // Sync open state with native dialog showModal/close
+  // Sync open state with native dialog and handle Escape/cancel
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -22,36 +22,24 @@ export function CancelConfirmDialog({ open, onConfirm, onDismiss }: CancelConfir
     } else if (!open && dialog.open) {
       dialog.close();
     }
-  }, [open]);
-
-  // Escape key → dismiss
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
 
     const onKey = (e: Event) => {
-      const ke = e as KeyboardEvent;
-      if (ke.key === 'Escape') {
-        ke.preventDefault();
+      if ((e as KeyboardEvent).key === 'Escape') {
+        e.preventDefault();
         onDismiss();
       }
     };
-    dialog.addEventListener('keydown', onKey);
-    return () => dialog.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
-
-  // Handle native dialog cancel event (Escape) as fallback
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
     const onCancel = (e: Event) => {
       e.preventDefault();
       onDismiss();
     };
+    dialog.addEventListener('keydown', onKey);
     dialog.addEventListener('cancel', onCancel);
-    return () => dialog.removeEventListener('cancel', onCancel);
-  }, [onDismiss]);
+    return () => {
+      dialog.removeEventListener('keydown', onKey);
+      dialog.removeEventListener('cancel', onCancel);
+    };
+  }, [open, onDismiss]);
 
   const dialogElement = (
     <dialog

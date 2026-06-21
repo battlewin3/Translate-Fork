@@ -19,33 +19,7 @@ from pdf2zh import __version__
 from pdf2zh.high_level import translate
 from pdf2zh.doclayout import ModelInstance
 from pdf2zh.config import ConfigManager
-from pdf2zh.translator import (
-    AnythingLLMTranslator,
-    AzureOpenAITranslator,
-    AzureTranslator,
-    BaseTranslator,
-    BingTranslator,
-    DeepLTranslator,
-    DeepLXTranslator,
-    DifyTranslator,
-    ArgosTranslator,
-    GeminiTranslator,
-    GoogleTranslator,
-    MiniMaxTranslator,
-    ModelScopeTranslator,
-    OllamaTranslator,
-    OpenAITranslator,
-    SiliconTranslator,
-    TencentTranslator,
-    XinferenceTranslator,
-    ZhipuTranslator,
-    GrokTranslator,
-    GroqTranslator,
-    DeepseekTranslator,
-    OpenAIlikedTranslator,
-    QwenMtTranslator,
-    X302AITranslator,
-)
+from pdf2zh.translator import TranslatorRegistry
 from babeldoc.docvision.doclayout import OnnxModel
 from babeldoc import __version__ as babeldoc_version
 
@@ -71,31 +45,21 @@ class _LazyModel:
 
 BABELDOC_MODEL = _LazyModel()
 # The following variables associate strings with translators
-service_map: dict[str, BaseTranslator] = {
-    "Google": GoogleTranslator,
-    "Bing": BingTranslator,
-    "DeepL": DeepLTranslator,
-    "DeepLX": DeepLXTranslator,
-    "Ollama": OllamaTranslator,
-    "Xinference": XinferenceTranslator,
-    "AzureOpenAI": AzureOpenAITranslator,
-    "OpenAI": OpenAITranslator,
-    "Zhipu": ZhipuTranslator,
-    "ModelScope": ModelScopeTranslator,
-    "Silicon": SiliconTranslator,
-    "Gemini": GeminiTranslator,
-    "Azure": AzureTranslator,
-    "Tencent": TencentTranslator,
-    "Dify": DifyTranslator,
-    "AnythingLLM": AnythingLLMTranslator,
-    "Argos Translate": ArgosTranslator,
-    "Grok": GrokTranslator,
-    "Groq": GroqTranslator,
-    "DeepSeek": DeepseekTranslator,
-    "MiniMax": MiniMaxTranslator,
-    "OpenAI-liked": OpenAIlikedTranslator,
-    "Ali Qwen-Translation": QwenMtTranslator,
-    "302.AI": X302AITranslator,
+# Display-name → internal-name mapping for the Gradio GUI.
+# The registry uses snake_case internal names; the GUI shows human-readable labels.
+_SERVICE_DISPLAY_MAP = {
+    "Google": "google", "Bing": "bing", "DeepL": "deepl", "DeepLX": "deeplx",
+    "Ollama": "ollama", "Xinference": "xinference", "AzureOpenAI": "azure-openai",
+    "OpenAI": "openai", "Zhipu": "zhipu", "ModelScope": "modelscope",
+    "Silicon": "silicon", "Gemini": "gemini", "Azure": "azure", "Tencent": "tencent",
+    "Dify": "dify", "AnythingLLM": "anythingllm", "Argos Translate": "argos",
+    "Grok": "grok", "Groq": "groq", "DeepSeek": "deepseek", "MiniMax": "minimax",
+    "OpenAI-liked": "openailiked", "Ali Qwen-Translation": "qwen-mt", "302.AI": "302ai",
+}
+service_map: dict[str, type] = {
+    display: TranslatorRegistry.get(internal)
+    for display, internal in _SERVICE_DISPLAY_MAP.items()
+    if TranslatorRegistry.get(internal) is not None
 }
 
 # The following variables associate strings with specific languages
@@ -127,7 +91,7 @@ flag_demo = False
 if ConfigManager.get("PDF2ZH_DEMO"):
     flag_demo = True
     service_map = {
-        "Google": GoogleTranslator,
+        "Google": TranslatorRegistry.get("google"),
     }
     page_map = {
         "First": [0],
@@ -401,43 +365,18 @@ def babeldoc_translate_file(**kwargs):
     from babeldoc.high_level import async_translate as babeldoc_translate
     from babeldoc.translation_config import TranslationConfig as YadtConfig
 
-    for translator in [
-        GoogleTranslator,
-        BingTranslator,
-        DeepLTranslator,
-        DeepLXTranslator,
-        OllamaTranslator,
-        XinferenceTranslator,
-        AzureOpenAITranslator,
-        OpenAITranslator,
-        ZhipuTranslator,
-        ModelScopeTranslator,
-        SiliconTranslator,
-        GeminiTranslator,
-        AzureTranslator,
-        TencentTranslator,
-        DifyTranslator,
-        AnythingLLMTranslator,
-        ArgosTranslator,
-        GrokTranslator,
-        GroqTranslator,
-        DeepseekTranslator,
-        OpenAIlikedTranslator,
-        QwenMtTranslator,
-        X302AITranslator,
-    ]:
-        if kwargs["service"] == translator.name:
-            translator = translator(
-                kwargs["lang_in"],
-                kwargs["lang_out"],
-                "",
-                envs=kwargs["envs"],
-                prompt=kwargs["prompt"],
-                ignore_cache=kwargs["ignore_cache"],
-            )
-            break
-    else:
-        raise ValueError("Unsupported translation service")
+    # Look up the display name in service_map to find the translator class
+    translator_cls = service_map.get(kwargs["service"])
+    if translator_cls is None:
+        raise ValueError(f"Unsupported translation service: {kwargs['service']}")
+    translator = translator_cls(
+        kwargs["lang_in"],
+        kwargs["lang_out"],
+        "",
+        envs=kwargs["envs"],
+        prompt=kwargs["prompt"],
+        ignore_cache=kwargs["ignore_cache"],
+    )
     import asyncio
     from babeldoc.main import create_progress_handler
 

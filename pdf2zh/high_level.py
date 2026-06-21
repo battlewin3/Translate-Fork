@@ -238,7 +238,6 @@ def translate_stream(
     doc_en.save(stream)
     doc_zh = Document(stream=stream)
     page_count = doc_zh.page_count
-    # font_list = [("GoNotoKurrent-Regular.ttf", font_path), ("tiro", None)]
     font_id = {}
     for page in doc_zh:
         for font in font_list:
@@ -266,21 +265,39 @@ def translate_stream(
                                 f"{font_id[font[0]]} 0 R",
                             )
             except Exception:
-                pass
+                logger.debug("Font registration skipped for xref %d label %r", xref, label, exc_info=True)
 
     fp = io.BytesIO()
 
     doc_zh.save(fp)
-    obj_patch: dict = translate_patch(fp, **locals())
+    obj_patch: dict = translate_patch(
+        fp,
+        pages=pages,
+        vfont=vfont,
+        vchar=vchar,
+        thread=thread,
+        doc_zh=doc_zh,
+        lang_in=lang_in,
+        lang_out=lang_out,
+        service=service,
+        noto_name=noto_name,
+        noto=noto,
+        callback=callback,
+        cancellation_event=cancellation_event,
+        model=model,
+        envs=envs,
+        prompt=prompt,
+        ignore_cache=ignore_cache,
+    )
 
     for obj_id, ops_new in obj_patch.items():
-        # ops_old=doc_en.xref_stream(obj_id)
-        # print(obj_id)
-        # print(ops_old)
-        # print(ops_new.encode())
         doc_zh.update_stream(obj_id, ops_new.encode())
 
-    # Generate side-by-side PDF before subset_fonts so all docs benefit
+    # Subset fonts in translated doc before creating side-by-side PDF
+    if not skip_subset_fonts:
+        doc_zh.subset_fonts(fallback=True)
+
+    # Generate side-by-side PDF after subsetting for smaller file size
     side_bytes = None
     if output_mode and "side" in output_mode.lower():
         side_bytes = create_side_by_side(doc_en, doc_zh, page_count)
@@ -288,9 +305,11 @@ def translate_stream(
     doc_en.insert_file(doc_zh)
     for id in range(page_count):
         doc_en.move_page(page_count + id, id * 2 + 1)
+
+    # Subset fonts in both the merged dual doc and the already-subset mono doc
     if not skip_subset_fonts:
-        doc_zh.subset_fonts(fallback=True)
         doc_en.subset_fonts(fallback=True)
+
     return (
         doc_zh.write(deflate=True, garbage=3, use_objstms=1),
         doc_en.write(deflate=True, garbage=3, use_objstms=1),
@@ -382,12 +401,28 @@ def translate(
     result_files = []
 
     for file in files:
-        if type(file) is str and (
+        if isinstance(file, str) and (
             file.startswith("http://") or file.startswith("https://")
         ):
+            # Validate URL to prevent SSRF — reject internal/private hosts
+            from urllib.parse import urlparse
+            import ipaddress
+
+            parsed = urlparse(file)
+            hostname = parsed.hostname
+            if hostname:
+                try:
+                    addr = ipaddress.ip_address(hostname)
+                    if addr.is_loopback or addr.is_private or addr.is_link_local:
+                        raise PDFValueError(
+                            f"Downloading from internal/private addresses is not allowed: {hostname}"
+                        )
+                except ValueError:
+                    pass  # Not an IP address; allow DNS resolution
+
             print("Online files detected, downloading...")
             try:
-                r = requests.get(file, allow_redirects=True)
+                r = requests.get(file, allow_redirects=False, timeout=30)
                 if r.status_code == 200:
                     with tempfile.NamedTemporaryFile(
                         suffix=".pdf", delete=False
@@ -439,7 +474,21 @@ def translate(
 
         s_mono, s_dual, s_side = translate_stream(
             s_raw,
-            **locals(),
+            pages=pages,
+            lang_in=lang_in,
+            lang_out=lang_out,
+            service=service,
+            thread=thread,
+            vfont=vfont,
+            vchar=vchar,
+            callback=callback,
+            cancellation_event=cancellation_event,
+            model=model,
+            envs=envs,
+            prompt=prompt,
+            skip_subset_fonts=skip_subset_fonts,
+            ignore_cache=ignore_cache,
+            output_mode=output_mode,
         )
         file_mono = Path(output) / f"{filename}-mono.pdf"
         file_dual = Path(output) / f"{filename}-dual.pdf"

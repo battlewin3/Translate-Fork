@@ -57,6 +57,42 @@ from tenacity import wait_exponential
 logger = logging.getLogger(__name__)
 
 
+class TranslatorRegistry:
+    """Auto-registering registry for translator classes.
+
+    Each ``BaseTranslator`` subclass is automatically registered via
+    ``__init_subclass__``, keyed by its ``name`` class attribute.
+    Consumers call ``TranslatorRegistry.get(name)`` or
+    ``TranslatorRegistry.list_all()`` instead of maintaining
+    hardcoded class lists.
+    """
+
+    _translators: dict[str, type] = {}
+
+    @classmethod
+    def register(cls, translator_cls: type) -> None:
+        name = getattr(translator_cls, "name", None)
+        if name and name != "base":
+            cls._translators[name] = translator_cls
+
+    @classmethod
+    def get(cls, name: str) -> type | None:
+        return cls._translators.get(name)
+
+    @classmethod
+    def list_all(cls) -> list[type]:
+        return list(cls._translators.values())
+
+    @classmethod
+    def get_names(cls) -> list[str]:
+        return list(cls._translators.keys())
+
+    @classmethod
+    def _reset(cls) -> None:
+        """For testing only — clear all registered translators."""
+        cls._translators.clear()
+
+
 def remove_control_characters(s):
     return "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
 
@@ -71,6 +107,10 @@ class BaseTranslator:
     envs = {}
     lang_map: dict[str, str] = {}
     CustomPrompt = False
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        TranslatorRegistry.register(cls)
 
     def __init__(self, lang_in: str, lang_out: str, model: str, ignore_cache: bool):
         lang_in = self.lang_map.get(lang_in.lower(), lang_in)
@@ -333,7 +373,6 @@ class DeepLXTranslator(BaseTranslator):
                 "target_lang": self.lang_out,
                 "text": text,
             },
-            verify=False,  # noqa: S506
         )
         response.raise_for_status()
         return response.json()["data"]
@@ -788,11 +827,15 @@ class ZhipuTranslator(OpenAITranslator):
                 messages=self.prompt(text, self.prompttext),
             )
         except openai.BadRequestError as e:
-            if (
-                json.loads(response.choices[0].message.content.strip())["error"]["code"]
-                == "1301"
-            ):
-                return "IRREPARABLE TRANSLATION ERROR"
+            # Zhipu returns error code "1301" for untranslatable content.
+            # Access the error from the exception body, not from the
+            # (never-assigned) `response` variable from the try block.
+            try:
+                error_body = e.body if hasattr(e, "body") else None
+                if isinstance(error_body, dict) and error_body.get("error", {}).get("code") == "1301":
+                    return "IRREPARABLE TRANSLATION ERROR"
+            except Exception:
+                pass
             raise e
         return response.choices[0].message.content.strip()
 
@@ -980,10 +1023,10 @@ class AnythingLLMTranslator(BaseTranslator):
     CustomPrompt = True
 
     def __init__(
-        self, lang_out, lang_in, model, envs=None, prompt=None, ignore_cache=False
+        self, lang_in, lang_out, model, envs=None, prompt=None, ignore_cache=False
     ):
         self.set_envs(envs)
-        super().__init__(lang_out, lang_in, model, ignore_cache)
+        super().__init__(lang_in, lang_out, model, ignore_cache)
         self.api_url = self.envs["AnythingLLM_URL"]
         self.api_key = self.envs["AnythingLLM_APIKEY"]
         self.headers = {
@@ -1019,10 +1062,10 @@ class DifyTranslator(BaseTranslator):
     }
 
     def __init__(
-        self, lang_out, lang_in, model, envs=None, ignore_cache=False, **kwargs
+        self, lang_in, lang_out, model, envs=None, ignore_cache=False, **kwargs
     ):
         self.set_envs(envs)
-        super().__init__(lang_out, lang_in, model, ignore_cache)
+        super().__init__(lang_in, lang_out, model, ignore_cache)
         self.api_url = self.envs["DIFY_API_URL"]
         self.api_key = self.envs["DIFY_API_KEY"]
 

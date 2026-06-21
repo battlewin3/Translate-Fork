@@ -1,5 +1,7 @@
 import logging
 from typing import Any, Dict, Optional, Sequence, Tuple, cast
+
+logger = logging.getLogger(__name__)
 import numpy as np
 
 from pdfminer import settings
@@ -243,7 +245,7 @@ class PDFPageInterpreterEx(PDFPageInterpreter):
                     f"q {ops_base}Q {a} {b} {c} {d} {e} {f} cm {ops_new}"
                 )
             except Exception:
-                pass
+                logger.debug("XObject font/end_figure failed for xobjid %s", xobjid, exc_info=True)
         elif subtype is LITERAL_IMAGE and "Width" in xobj and "Height" in xobj:
             self.device.begin_figure(xobjid, (0, 0, 1, 1), MATRIX_IDENTITY)
             self.device.render_image(xobjid, xobj)

@@ -16,32 +16,9 @@ from pymupdf import Font
 from tenacity import retry, wait_fixed
 
 from pdf2zh.translator import (
-    AnythingLLMTranslator,
-    is_formula_only,
-    ArgosTranslator,
-    AzureOpenAITranslator,
-    AzureTranslator,
     BaseTranslator,
-    BingTranslator,
-    DeepLTranslator,
-    DeepLXTranslator,
-    DeepseekTranslator,
-    DifyTranslator,
-    GeminiTranslator,
-    GoogleTranslator,
-    GrokTranslator,
-    GroqTranslator,
-    MiniMaxTranslator,
-    ModelScopeTranslator,
-    OllamaTranslator,
-    OpenAIlikedTranslator,
-    OpenAITranslator,
-    QwenMtTranslator,
-    SiliconTranslator,
-    TencentTranslator,
-    XinferenceTranslator,
-    ZhipuTranslator,
-    X302AITranslator,
+    TranslatorRegistry,
+    is_formula_only,
 )
 
 log = logging.getLogger(__name__)
@@ -161,10 +138,9 @@ class TranslateConverter(PDFConverterEx):
         service_model = param[1] if len(param) > 1 else None
         if not envs:
             envs = {}
-        for translator in [GoogleTranslator, BingTranslator, DeepLTranslator, DeepLXTranslator, OllamaTranslator, XinferenceTranslator, AzureOpenAITranslator,
-                           OpenAITranslator, ZhipuTranslator, ModelScopeTranslator, SiliconTranslator, GeminiTranslator, AzureTranslator, TencentTranslator, DifyTranslator, AnythingLLMTranslator, ArgosTranslator, GrokTranslator, GroqTranslator, DeepseekTranslator, MiniMaxTranslator, OpenAIlikedTranslator, QwenMtTranslator, X302AITranslator]:
-            if service_name == translator.name:
-                self.translator = translator(lang_in, lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
+        translator_cls = TranslatorRegistry.get(service_name)
+        if translator_cls:
+            self.translator = translator_cls(lang_in, lang_out, service_model, envs=envs, prompt=prompt, ignore_cache=ignore_cache)
         if not self.translator:
             raise ValueError("Unsupported translation service")
 

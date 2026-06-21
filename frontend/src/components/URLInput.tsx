@@ -42,7 +42,7 @@ export default function URLInput() {
         />
         {value && (
           <button type="button" onClick={() => { setValue(''); setError(null); setIsValid(false); dispatch({ type: 'SET_INPUT_URL', url: '' }); }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]" aria-label="清除">
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]" aria-label={T.clearFile}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
         )}
