@@ -2,6 +2,18 @@
 
 Scientific PDF translation with layout preservation. This file is optimized for Hermes agents and other AI coding assistants. See `CLAUDE.md` for the comprehensive guide.
 
+## 🚨 MANDATORY: First-Use Service Configuration
+
+**You MUST guide the user through service selection and persistent configuration on first use. NEVER silently use the default translation service without explicit user confirmation.**
+
+When a user asks you to translate a document:
+1. **ALWAYS** call `get_setup_status()` first — never assume a service is configured
+2. **If unconfigured**: present the user with service options (free vs paid), explain the trade-offs, and use `configure_service()` to persist their choice
+3. **If configured**: confirm with the user which service to use before calling `translate_pdf()`
+4. **NEVER** call `translate_pdf()` with the default service without telling the user what service will be used
+
+The user's API keys and preferences are persisted to disk (`~/.config/PDFMathTranslate/config.json`) — this is a one-time setup.
+
 ## First Contact: Always Start Here
 
 The project has a **stable initialization protocol**. Regardless of which agent or MCP client you're using, always call `get_setup_status` first:
@@ -91,6 +103,31 @@ translate_pdf(file="/home/user/Documents/paper.pdf", lang_in="en", lang_out="zh"
 translate_batch(files='["/path/to/a.pdf","/path/to/b.pdf"]')
 → '{"total":2,"succeeded":2,"results":[{"file":"/a.pdf","ok":true,"files":[...]},...]}'
 ```
+
+## CLI Setup (Command-Line Users)
+
+For users working directly on the command line (not via MCP or REST API):
+
+```bash
+# Launch the interactive configuration wizard
+pdf2zh --setup
+```
+
+The wizard will:
+1. Display all available services (free + paid)
+2. Prompt for service selection
+3. Ask for API key / model / base URL as needed
+4. Test the connection with a sample translation
+5. Save credentials to ~/.config/PDFMathTranslate/config.json
+
+After setup, translate directly:
+```bash
+pdf2zh document.pdf                    # uses last configured service
+pdf2zh document.pdf -s deepseek        # uses a specific service
+pdf2zh document.pdf -s openai:gpt-4o   # with model override
+```
+
+**When guiding a CLI user: ALWAYS tell them to run `pdf2zh --setup` first.** Never assume they have a service configured.
 
 ## REST API Quick Start (Programmatic / Non-MCP Agents)
 

@@ -2,18 +2,39 @@
 
 Scientific PDF translation engine that preserves layouts (math, tables, figures) — with a modern FastAPI REST API, MCP server for AI agents, and React frontend.
 
-**TL;DR:** This project translates PDF/DOCX files between 9 languages using 25 translation services. AI agents access it via **MCP tools** (Claude Desktop) or **REST API** (programmatic).
+**TL;DR:** This project translates PDF/DOCX files between 9 languages using 25 translation services. AI agents access it via **MCP tools** (Claude Desktop), **REST API** (programmatic), or **CLI** (`pdf2zh --setup` + `pdf2zh file.pdf`).
 
-> **First command:** Call `get_setup_status` (MCP) or `GET /api/setup-status` (REST) to check if a translation service has been configured. If nothing is set up, you'll be guided through a one-time configuration wizard.
+## 🚨 MANDATORY: First-Use Service Configuration
+
+**You MUST guide the user through service selection and persistent API key configuration on first use. NEVER silently use the default translation service (Google Translate) without explicit user confirmation.**
+
+### Required Protocol (Every Agent Must Follow)
+
+1. **ALWAYS** call `get_setup_status()` (MCP) or `GET /api/setup-status` (REST) first — never assume a service is configured
+2. **If unconfigured** (`configured: false`):
+   - Present the user with service options: free (google, bing) vs paid (deepseek, openai, gemini, ...)
+   - Explain the quality trade-offs (paid LLM services produce better translations for scientific content)
+   - **MCP users**: call `configure_service(service="...", api_key="...")` to validate and persist
+   - **REST users**: guide them to set env vars (`DEEPSEEK_API_KEY=sk-...`) or run `pdf2zh --setup`
+   - **CLI users**: guide them to run `pdf2zh --setup` for an interactive configuration wizard
+3. **If already configured** (`configured: true`):
+   - Tell the user which services are available (`configured_services`)
+   - Confirm which service they want to use
+   - Only then call `translate_pdf()`
+
+**Rationale:** The default service (Google Translate) is free and works out-of-the-box, but produces lower quality translations for technical/scientific content. Users should make an informed choice. Their API keys persist to `~/.config/PDFMathTranslate/config.json` (0600 permissions) — this is a one-time setup.
+
+> **First command every time:** `get_setup_status` (MCP) or `GET /api/setup-status` (REST) — always check setup state first.
 
 ---
 
 ## Quick Reference
 
-| Access Mode | Entry Point | Setup Required | Best For |
-|-------------|-------------|----------------|----------|
-| **MCP Tools** | `get_setup_status` → `configure_service` → `translate_pdf` | One-time `configure_service` | Claude Desktop, AI agents |
-| **REST API** | `GET /api/setup-status` → set env vars → `POST /api/translate` | One-time env var setup | Programmatic, CI/CD, scripts |
+| Access Mode | First-Time Setup | Daily Use | Best For |
+|-------------|-----------------|-----------|----------|
+| **CLI** | `pdf2zh --setup` (interactive wizard) | `pdf2zh file.pdf` | Command-line users |
+| **MCP Tools** | `configure_service(service="...", api_key="...")` | `translate_pdf(file="...")` | Claude Desktop, AI agents |
+| **REST API** | Set env vars or `GET /api/setup-status` | `POST /api/translate` | Programmatic, CI/CD |
 | **Web UI** | `http://localhost:5173` | Interactive in-browser | Humans |
 
 ---
@@ -26,25 +47,33 @@ Scientific PDF translation engine that preserves layouts (math, tables, figures)
 What do you want to do?
 │
 ├── First contact with this project?
-│   └── Call get_setup_status (MCP) or GET /api/setup-status (REST)
+│   └── CLI: pdf2zh --setup  (interactive wizard)
+│       MCP: get_setup_status() then configure_service()
+│       REST: GET /api/setup-status
 │       │
 │       ├── configured: true → Ready! Jump to translation.
 │       │
 │       └── configured: false → You need to set up a service:
 │           │
+│           ├── CLI: pdf2zh --setup → interactive wizard
+│           │
 │           ├── Want free (no API key)?
 │           │   ├── MCP: configure_service(service="google")
+│           │   ├── CLI: pdf2zh --setup → select google
 │           │   └── REST: No env vars needed for google/bing
 │           │
 │           └── Want a paid service (better quality)?
 │               ├── MCP: configure_service(service="deepseek", api_key="sk-...")
+│               ├── CLI: pdf2zh --setup → select deepseek → enter key
 │               └── REST: Set env var (e.g. DEEPSEEK_API_KEY=sk-...)
 │
 ├── Translate one document?
+│   ├── CLI: pdf2zh document.pdf
 │   ├── MCP: translate_pdf(file="/path/to/doc.pdf")
 │   └── REST: POST /api/translate (multipart form with file)
 │
 └── Translate many documents?
+    ├── CLI: pdf2zh --dir ./pdfs/
     ├── MCP: translate_batch(files='["/a.pdf","/b.pdf"]')
     └── REST: POST /api/translate-batch (multipart form with files[])
 ```
@@ -68,7 +97,19 @@ Step 3: POST /api/test-service             → Optional: verify connectivity
 Step 4: POST /api/translate                → Translate!
 ```
 
-**Persistence:** MCP `configure_service` writes to `~/.config/PDFMathTranslate/config.json`. REST API reads env vars. Both persist across sessions — you only configure once.
+**Persistence:** MCP `configure_service` and CLI `pdf2zh --setup` write to `~/.config/PDFMathTranslate/config.json`. REST API reads env vars. All paths persist across sessions — you only configure once.
+
+### Setup Flow (CLI)
+
+```
+Step 1: pdf2zh --setup                        → Interactive service selection wizard
+         - Lists all free + paid services
+         - Prompts for API key / model / URL
+         - Tests connection with "Hello" → translation
+         - Persists to ~/.config/PDFMathTranslate/config.json
+Step 2: pdf2zh document.pdf                   → Translate (uses last configured service)
+Step 3: pdf2zh document.pdf -s deepseek       → Translate with specific service
+```
 
 ---
 
@@ -481,6 +522,80 @@ envs_json      → '{"KEY":"value"}' for service-specific env vars
 | Monolingual | `mono` | Translation only, original layout preserved | Distribution, reading |
 
 **Default:** `side` (side-by-side comparison).
+
+---
+
+## CLI Setup Wizard
+
+The CLI provides an interactive configuration wizard for first-time users:
+
+```bash
+pdf2zh --setup
+```
+
+### Wizard Walkthrough
+
+```
+==========================================================
+  PDFMathTranslate — Service Configuration Wizard
+==========================================================
+
+Available translation services:
+
+  [ Free — no API key required ]
+    • google
+    • bing
+    • argos
+
+  [ Paid — API key required, higher quality ]
+    • deepseek           (DEEPSEEK_API_KEY, DEEPSEEK_MODEL)
+    • openai             (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL)
+    • gemini             (GEMINI_API_KEY, GEMINI_MODEL)
+    • ... (21 more)
+
+Service name (or 'q' to quit): deepseek
+
+Selected: deepseek
+
+Enter credentials (press Enter to use default, skip optional fields):
+
+  DEEPSEEK_API_KEY [default: ********]: sk-abc123
+  DEEPSEEK_MODEL [default: deepseek-chat] (optional):
+
+Testing connection...
+  ✓ Success! Translated 'Hello' → '你好' (342ms)
+
+==========================================================
+  ✓ Service 'deepseek' configured successfully!
+  Configuration saved to:
+    ~/.config/PDFMathTranslate/config.json
+
+  You can now translate documents:
+    pdf2zh document.pdf -s deepseek
+    pdf2zh document.pdf                  (uses last configured service)
+==========================================================
+```
+
+### After Setup — Daily Use
+
+```bash
+# Use last configured service (whatever you set up with --setup)
+pdf2zh document.pdf
+
+# Use a specific service
+pdf2zh document.pdf -s openai
+
+# With model override
+pdf2zh document.pdf -s openai:gpt-4o-mini
+
+# Translate entire directory
+pdf2zh --dir ./papers/ -s deepseek
+
+# Specify languages
+pdf2zh document.pdf -li en -lo ja -s google
+```
+
+**When guiding a CLI user: ALWAYS direct them to `pdf2zh --setup` first.** Never tell them to run `pdf2zh file.pdf` without first checking or establishing their service configuration.
 
 ---
 
