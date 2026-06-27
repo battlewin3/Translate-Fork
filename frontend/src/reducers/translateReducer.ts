@@ -111,11 +111,27 @@ export const initialState: TranslateState = {
 export function translateReducer(state: TranslateState, action: TranslateAction): TranslateState {
   switch (action.type) {
     case 'SET_INPUT_FILE':
-      return { ...state, file: action.file, url: '', error: null };
+      // Changing the input file invalidates any prior translation results
+      return {
+        ...state, file: action.file, url: '', error: null,
+        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
+        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
+        elapsedSeconds: 0, cancelRequested: false,
+      };
     case 'SET_INPUT_URL':
-      return { ...state, url: action.url, file: null, error: null };
+      return {
+        ...state, url: action.url, file: null, error: null,
+        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
+        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
+        elapsedSeconds: 0, cancelRequested: false,
+      };
     case 'SET_INPUT_TYPE':
-      return { ...state, fileInputType: action.inputType, file: null, url: '', error: null };
+      return {
+        ...state, fileInputType: action.inputType, file: null, url: '', error: null,
+        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
+        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
+        elapsedSeconds: 0, cancelRequested: false,
+      };
     case 'SET_SERVICE':
       return { ...state, service: action.service };
     case 'SET_LANG_FROM':
@@ -189,7 +205,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
     case 'DISMISS_ERROR':
       return { ...state, error: null };
     case 'RESET_FORM':
-      return { ...initialState, resultFiles: state.resultFiles };
+      return { ...initialState };
     default:
       return state;
   }
