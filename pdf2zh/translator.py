@@ -277,6 +277,10 @@ class GoogleTranslator(BaseTranslator):
         else:
             response.raise_for_status()
             result = html.unescape(re_result[0])
+        result = result.strip()
+        # 去除 html.unescape 可能引入的多宽度空白字符（&nbsp; → \xa0 等），
+        # 这些字符在排版时会占用实际宽度，导致段落溢出和文本重叠
+        result = result.strip("  ᠎             　")
         return remove_control_characters(result)
 
 
