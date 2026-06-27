@@ -38,6 +38,8 @@ class ConfigManager:
         if not self._config_path.exists():
             if isInit:
                 self._config_path.parent.mkdir(parents=True, exist_ok=True)
+                # Restrict config directory: owner-only access (rwx------)
+                self._config_path.parent.chmod(0o700)
                 self._config_data = {}  # 默认配置内容
                 self._save_config()
             else:
@@ -58,15 +60,22 @@ class ConfigManager:
             cleaned_data = self._remove_circular_references(self._config_data)
             with self._config_path.open("w", encoding="utf-8") as f:
                 json.dump(cleaned_data, f, indent=4, ensure_ascii=False)
+            # Restrict config file: owner-only read/write (rw-------)
+            self._config_path.chmod(0o600)
 
     def _remove_circular_references(self, obj, seen=None):
-        """递归移除循环引用"""
+        """递归移除循环引用 (only on mutable containers, not interned primitives)."""
         if seen is None:
             seen = set()
-        obj_id = id(obj)
-        if obj_id in seen:
-            return None  # 遇到已处理过的对象，视为循环引用
-        seen.add(obj_id)
+        # Only track mutable containers (dict, list) — primitives like strings,
+        # ints, and floats may be interned and share the same id() legitimately.
+        if isinstance(obj, (dict, list)):
+            obj_id = id(obj)
+            if obj_id in seen:
+                return None  # 遇到已处理过的对象，视为循环引用
+            seen.add(obj_id)
+        else:
+            return obj
 
         if isinstance(obj, dict):
             return {
@@ -215,3 +224,42 @@ class ConfigManager:
         instance = cls.get_instance()
         with instance._lock:
             os.remove(instance._config_path)
+
+    @classmethod
+    def is_configured(cls):
+        """Return True if at least one translator has been set up."""
+        instance = cls.get_instance()
+        with instance._lock:
+            translators = instance._config_data.get("translators", [])
+            return len(translators) > 0
+
+    @classmethod
+    def get_configured_service_names(cls):
+        """Return names of all configured translator services."""
+        instance = cls.get_instance()
+        with instance._lock:
+            translators = instance._config_data.get("translators", [])
+            return [t["name"] for t in translators]
+
+    @classmethod
+    def get_last_used_service(cls):
+        """Return the most recently used service name, or None."""
+        instance = cls.get_instance()
+        with instance._lock:
+            last = instance._config_data.get("last_used_service")
+            if last:
+                return last
+            translators = instance._config_data.get("translators", [])
+            if translators:
+                return translators[0]["name"]
+            return None
+
+    @classmethod
+    def set_last_used_service(cls, name):
+        """Record the most recently used translation service."""
+        instance = cls.get_instance()
+        with instance._lock:
+            if instance._config_data.get("last_used_service") == name:
+                return  # no change — skip disk I/O
+            instance._config_data["last_used_service"] = name
+            instance._save_config()

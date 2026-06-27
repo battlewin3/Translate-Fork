@@ -27,7 +27,7 @@ class TranslateRequest:
     skip_subset_fonts: bool = False
     ignore_cache: bool = False
     compatible: bool = False
-    output_mode: str = "mono_dual"  # "mono_dual" | "side_by_side"
+    output_mode: str = "side"  # "mono_dual" | "side"
 
 
 @dataclass

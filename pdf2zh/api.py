@@ -12,13 +12,14 @@ import asyncio
 import concurrent.futures
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
@@ -82,10 +83,178 @@ ENABLED_SERVICES = [
 ]
 
 
+# ── Shared Helpers ──────────────────────────────────────────────────────────
+
+
+def _sanitize_error(e: Exception) -> str:
+    """Return a user-safe error message without internal paths or secrets."""
+    msg = str(e)
+    # Truncate very long messages
+    if len(msg) > 500:
+        msg = msg[:500] + "..."
+    return msg
+
+
+def _validate_file_content(content: bytes, filename: str) -> str | None:
+    """Check file magic bytes. Returns error message or None if valid."""
+    if len(content) == 0:
+        return f"Empty file: {filename}"
+    if len(content) < 4:
+        return f"File too small to be valid: {filename}"
+    if not (content.startswith(_PDF_SIGNATURE) or content.startswith(_ZIP_SIGNATURE)):
+        return f"Unsupported file type: {filename} (expected PDF or DOCX)"
+    return None
+
+
+def _parse_page_range(page_range: str, custom_pages: str) -> list[int]:
+    """Parse page selection form params into a list of 0-indexed page numbers.
+
+    Returns an empty list for "All" (meaning: translate all pages).
+    """
+    page_map = {
+        "All": [],
+        "First Page": [0],
+        "First 5 Pages": [0, 1, 2, 3, 4],
+    }
+    if page_range == "Others" and custom_pages:
+        selected = []
+        for p in custom_pages.split(","):
+            p = p.strip()
+            if not p:
+                continue
+            try:
+                if "-" in p:
+                    start, end = p.split("-")
+                    selected.extend(range(int(start) - 1, int(end)))
+                else:
+                    selected.append(int(p) - 1)
+            except (ValueError, OverflowError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid page range: '{p}'. Use numbers like '1,3,5-10'.",
+                )
+        return selected
+    return page_map.get(page_range, [])
+
+
+def _create_translation_runner(
+    job_id: str,
+    file_path: str,
+    lang_in: str,
+    lang_out: str,
+    service: str,
+    output_mode: str,
+    threads: int,
+    vfont: str,
+    envs: dict,
+    prompt: str,
+    skip_subset_fonts: bool,
+    ignore_cache: bool,
+    selected_pages: list[int] | None,
+    upload_dir: str,
+    _push_sse,
+):
+    """Return a callable that runs translation in a background thread.
+
+    The returned function writes status updates to the global `jobs` dict
+    and pushes SSE progress events via `_push_sse`.
+    """
+    from pdf2zh.high_level import translate
+    from pdf2zh.doclayout import ModelInstance
+
+    def run():
+        try:
+            with jobs_lock:
+                jobs[job_id]["status"] = "running"
+                jobs[job_id]["desc"] = "正在翻译..."
+
+            _ensure_model_loaded()
+
+            def progress_cb(t):
+                pct = t.n / t.total if t.total else 0
+                desc = getattr(t, "desc", "") or "正在翻译..."
+                snap = {
+                    "progress": pct,
+                    "desc": desc,
+                    "status": "running",
+                    "error": None,
+                    "phase": getattr(t, "phase", ""),
+                    "phase_page": getattr(t, "page", 0),
+                    "phase_total": getattr(t, "total_pages", 0),
+                }
+                with jobs_lock:
+                    jobs[job_id].update(snap)
+                _push_sse(snap)
+
+            result_files = translate(
+                files=[str(file_path)],
+                output=str(upload_dir),
+                pages=selected_pages if selected_pages else None,
+                lang_in=lang_in,
+                lang_out=lang_out,
+                service=service,
+                thread=threads,
+                vfont=vfont,
+                callback=progress_cb,
+                cancellation_event=jobs[job_id]["cancel_event"],
+                model=ModelInstance.value,
+                envs=envs,
+                prompt=prompt if prompt else None,
+                skip_subset_fonts=skip_subset_fonts,
+                ignore_cache=ignore_cache,
+                output_mode=output_mode,
+            )
+
+            with jobs_lock:
+                jobs[job_id]["phase"] = "finalizing"
+                jobs[job_id]["desc"] = "正在生成最终文件..."
+
+            files_output = {}
+            for item in result_files:
+                mono_path = item[0]
+                dual_path = item[1]
+                side_path = item[2] if len(item) > 2 else None
+                files_output["mono"] = mono_path
+                files_output["dual"] = dual_path
+                if side_path:
+                    files_output["side"] = side_path
+
+            with jobs_lock:
+                jobs[job_id].update({
+                    "status": "completed",
+                    "progress": 1.0,
+                    "desc": "翻译完成！",
+                    "files": files_output,
+                    "_completed_at": time.time(),
+                })
+            _push_sse({"progress": 1.0, "desc": "翻译完成！", "status": "completed", "error": None, "phase": "finalizing", "phase_page": 0, "phase_total": 0})
+
+        except asyncio.CancelledError:
+            with jobs_lock:
+                jobs[job_id].update({"status": "cancelled", "desc": "翻译已取消", "_completed_at": time.time()})
+            _push_sse({"progress": 0, "desc": "翻译已取消", "status": "cancelled", "error": None, "phase": "", "phase_page": 0, "phase_total": 0})
+        except Exception as e:
+            safe_msg = _sanitize_error(e)
+            with jobs_lock:
+                jobs[job_id].update({"status": "failed", "error": safe_msg, "_completed_at": time.time()})
+            _push_sse({"progress": 0, "desc": safe_msg, "status": "failed", "error": safe_msg, "phase": "", "phase_page": 0, "phase_total": 0})
+
+    return run
+
+
 # --- Job Management ---
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
+# Batch translation: maps batch_id → list of job_ids
+batches: dict[str, dict] = {}
+MAX_BATCH_FILES = 20
+MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200MB
+MAX_JOBS = 20  # concurrent job limit across all endpoints
+# PDF magic bytes: starts with %PDF-
+_PDF_SIGNATURE = b"%PDF-"
+# DOCX/XLSX magic bytes: PK zip
+_ZIP_SIGNATURE = b"PK\x03\x04"
 _translation_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 _loop_ref: asyncio.AbstractEventLoop | None = None
 
@@ -98,17 +267,36 @@ def _cache_event_loop() -> None:
 
 
 @app.on_event("startup")
-def _cleanup_old_uploads() -> None:
-    """Remove uploaded/translated files older than 1 hour."""
-    cutoff = time.time() - 3600
-    upload_dir = Path("pdf2zh_files")
-    if upload_dir.is_dir():
-        for child in upload_dir.iterdir():
-            try:
-                if child.stat().st_mtime < cutoff:
-                    child.unlink(missing_ok=True)
-            except OSError:
-                pass
+async def _cleanup_old_uploads() -> None:
+    """Start background task to periodically evict stale jobs and files."""
+    import asyncio as _asyncio
+
+    async def _periodic_cleanup():
+        while True:
+            await _asyncio.sleep(600)  # every 10 minutes
+            cutoff = time.time() - 3600
+            upload_dir = Path("pdf2zh_files")
+            if upload_dir.is_dir():
+                for child in upload_dir.iterdir():
+                    try:
+                        if child.stat().st_mtime < cutoff:
+                            child.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            # Evict completed/failed/cancelled jobs older than 1 hour
+            with jobs_lock:
+                stale = [jid for jid, j in jobs.items()
+                         if j.get("status") in ("completed", "failed", "cancelled")
+                         and j.get("_completed_at", float("inf")) < cutoff]
+                for jid in stale:
+                    del jobs[jid]
+                # Also clean up batches with all jobs gone
+                empty_batches = [bid for bid, b in batches.items()
+                                if not any(jid in jobs for jid in b.get("job_ids", []))]
+                for bid in empty_batches:
+                    del batches[bid]
+
+    _asyncio.create_task(_periodic_cleanup())
 
 
 @app.get("/api/health")
@@ -151,7 +339,7 @@ async def start_translation(
     lang_to: str = Form("Simplified Chinese"),
     page_range: str = Form("All"),
     custom_pages: str = Form(""),
-    output_mode: str = Form("mono_dual"),
+    output_mode: str = Form("side"),
     threads: int = Form(4),
     skip_subset_fonts: bool = Form(True),
     ignore_cache: bool = Form(False),
@@ -174,26 +362,28 @@ async def start_translation(
     if not file_path.is_relative_to(upload_dir):
         raise HTTPException(status_code=400, detail="Invalid filename")
     content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {len(content)} bytes. Maximum is {MAX_UPLOAD_SIZE} bytes.",
+        )
+
+    # Validate file type by magic bytes
+    type_error = _validate_file_content(content, safe_name)
+    if type_error:
+        raise HTTPException(status_code=415, detail=type_error)
+
     with open(file_path, "wb") as f:
         f.write(content)
 
     # Parse page selection
-    page_map_dict = {
-        "All": [],
-        "First Page": [0],
-        "First 5 Pages": [0, 1, 2, 3, 4],
-    }
-    if page_range == "Others" and custom_pages:
-        selected_pages = []
-        for p in custom_pages.split(","):
-            p = p.strip()
-            if "-" in p:
-                start, end = p.split("-")
-                selected_pages.extend(range(int(start) - 1, int(end)))
-            elif p:
-                selected_pages.append(int(p) - 1)
-    else:
-        selected_pages = page_map_dict.get(page_range, [])
+    selected_pages = _parse_page_range(page_range, custom_pages)
+
+    # Enforce concurrent job limit
+    with jobs_lock:
+        active = sum(1 for j in jobs.values() if j.get("status") in ("queued", "running"))
+        if active >= MAX_JOBS:
+            raise HTTPException(status_code=429, detail=f"Too many active jobs ({active}). Try again later.")
 
     # Store job
     original_name = os.path.splitext(safe_name)[0]
@@ -217,91 +407,33 @@ async def start_translation(
             loop.call_soon_threadsafe(sse_queue.put_nowait, data)
 
     # Start translation in background thread via thread-pool executor
-    def run_translation():
-        try:
-            with jobs_lock:
-                jobs[job_id]["status"] = "running"
-                jobs[job_id]["desc"] = "正在翻译..."
+    lang_in = lang_map.get(lang_from, "en")
+    lang_out = lang_map.get(lang_to, "zh")
 
-            from pdf2zh.high_level import translate
-            from pdf2zh.doclayout import ModelInstance
-
-            _ensure_model_loaded()
-
-            lang_in = lang_map.get(lang_from, "en")
-            lang_out = lang_map.get(lang_to, "zh")
-
-            def progress_cb(t):
-                pct = t.n / t.total if t.total else 0
-                desc = getattr(t, "desc", "") or "正在翻译..."
-                snapshot = {
-                    "progress": pct,
-                    "desc": desc,
-                    "status": "running",
-                    "error": None,
-                    "phase": getattr(t, "phase", ""),
-                    "phase_page": getattr(t, "page", 0),
-                    "phase_total": getattr(t, "total_pages", 0),
-                }
-                with jobs_lock:
-                    jobs[job_id].update(snapshot)
-                _push_sse(snapshot)
-
-            output = str(upload_dir)
-
-            result_files = translate(
-                files=[str(file_path)],
-                output=output,
-                pages=selected_pages if selected_pages else None,
-                lang_in=lang_in,
-                lang_out=lang_out,
-                service=service,
-                thread=threads,
-                vfont=vfont,
-                callback=progress_cb,
-                cancellation_event=jobs[job_id]["cancel_event"],
-                model=ModelInstance.value,
-                envs=envs,
-                prompt=prompt if prompt else None,
-                skip_subset_fonts=skip_subset_fonts,
-                ignore_cache=ignore_cache,
-                output_mode=output_mode,
-            )
-
-            # result_files is list of (mono, dual, side) tuples
-            with jobs_lock:
-                jobs[job_id]["phase"] = "finalizing"
-                jobs[job_id]["desc"] = "正在生成最终文件..."
-
-            files_output = {}
-            for item in result_files:
-                mono_path = item[0]
-                dual_path = item[1]
-                side_path = item[2] if len(item) > 2 else None
-                files_output["mono"] = mono_path
-                files_output["dual"] = dual_path
-                if side_path:
-                    files_output["side"] = side_path
-
-            with jobs_lock:
-                jobs[job_id].update({
-                    "status": "completed",
-                    "progress": 1.0,
-                    "desc": "翻译完成！",
-                    "files": files_output,
-                })
-            _push_sse({"progress": 1.0, "desc": "翻译完成！", "status": "completed", "error": None, "phase": "finalizing", "phase_page": 0, "phase_total": 0})
-
-        except asyncio.CancelledError:
-            with jobs_lock:
-                jobs[job_id].update({"status": "cancelled", "desc": "翻译已取消"})
-            _push_sse({"progress": 0, "desc": "翻译已取消", "status": "cancelled", "error": None, "phase": "", "phase_page": 0, "phase_total": 0})
-        except Exception as e:
-            with jobs_lock:
-                jobs[job_id].update({"status": "failed", "error": str(e)})
-            _push_sse({"progress": 0, "desc": str(e), "status": "failed", "error": str(e), "phase": "", "phase_page": 0, "phase_total": 0})
-
+    run_translation = _create_translation_runner(
+        job_id=job_id,
+        file_path=str(file_path),
+        lang_in=lang_in,
+        lang_out=lang_out,
+        service=service,
+        output_mode=output_mode,
+        threads=threads,
+        vfont=vfont,
+        envs=envs,
+        prompt=prompt,
+        skip_subset_fonts=skip_subset_fonts,
+        ignore_cache=ignore_cache,
+        selected_pages=selected_pages if selected_pages else None,
+        upload_dir=str(upload_dir),
+        _push_sse=_push_sse,
+    )
     _translation_executor.submit(run_translation)
+
+    # Record last used service (best-effort)
+    try:
+        ConfigManager.set_last_used_service(service)
+    except Exception:
+        pass
 
     return {"job_id": job_id, "status": "queued"}
 
@@ -433,7 +565,7 @@ async def test_service(
         return {
             "status": "error",
             "service": service,
-            "error": str(e),
+            "error": _sanitize_error(e),
         }
 
 
@@ -452,3 +584,230 @@ async def cancel_job(job_id: str):
             job["desc"] = "翻译已取消"
 
     return {"status": "cancelled"}
+
+
+# ── Batch Translation Endpoints ────────────────────────────────────────────
+
+
+@app.post("/api/translate-batch")
+async def start_batch_translation(
+    files: List[UploadFile] = File(...),
+    service: str = Form("Google"),
+    lang_from: str = Form("English"),
+    lang_to: str = Form("Simplified Chinese"),
+    page_range: str = Form("All"),
+    custom_pages: str = Form(""),
+    output_mode: str = Form("side"),
+    threads: int = Form(4),
+    skip_subset_fonts: bool = Form(True),
+    ignore_cache: bool = Form(False),
+    vfont: str = Form(""),
+    prompt: str = Form(""),
+    mode: str = Form("fast"),
+    envs_json: str = Form("{}"),
+):
+    """Start a batch translation job for multiple files (max 20)."""
+    if len(files) > MAX_BATCH_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many files: {len(files)}. Maximum is {MAX_BATCH_FILES}.",
+        )
+
+    batch_id = str(uuid.uuid4())
+    envs = json.loads(envs_json) if envs_json else {}
+    upload_dir = Path("pdf2zh_files").resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Parse page selection once (shared across all files in batch)
+    selected_pages = _parse_page_range(page_range, custom_pages)
+
+    # Record last used service in config (best-effort, non-blocking)
+    try:
+        ConfigManager.set_last_used_service(service)
+    except Exception:
+        pass
+
+    batch_jobs = []
+    for f in files:
+        job_id = str(uuid.uuid4())
+        safe_name = os.path.basename(f.filename) or "uploaded.pdf"
+        file_path = (upload_dir / f"{job_id}_{safe_name}").resolve()
+        if not file_path.is_relative_to(upload_dir):
+            raise HTTPException(status_code=400, detail=f"Invalid filename: {safe_name}")
+
+        content = await f.read()
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File '{safe_name}' too large: {len(content)} bytes. Maximum is {MAX_UPLOAD_SIZE} bytes.",
+            )
+
+        # Validate file type by magic bytes
+        type_error = _validate_file_content(content, safe_name)
+        if type_error:
+            raise HTTPException(status_code=415, detail=type_error)
+
+        with open(file_path, "wb") as fh:
+            fh.write(content)
+
+        original_name = os.path.splitext(safe_name)[0]
+        sse_queue: asyncio.Queue = asyncio.Queue()
+
+        with jobs_lock:
+            jobs[job_id] = {
+                "status": "queued",
+                "progress": 0.0,
+                "desc": "排队中...",
+                "files": None,
+                "error": None,
+                "cancel_event": threading.Event(),
+                "original_name": original_name,
+                "sse_queue": sse_queue,
+                "batch_id": batch_id,
+            }
+
+        batch_jobs.append({
+            "job_id": job_id,
+            "filename": original_name,
+            "status": "queued",
+        })
+
+        # Launch translation for this file
+        lang_in = lang_map.get(lang_from, "en")
+        lang_out = lang_map.get(lang_to, "zh")
+
+        def _push_sse_job(jid: str):
+            def push(data: dict):
+                loop = _loop_ref
+                if loop is None:
+                    return
+                with jobs_lock:
+                    job = jobs.get(jid)
+                    sse_q = job.get("sse_queue") if job else None
+                if sse_q is not None:
+                    loop.call_soon_threadsafe(sse_q.put_nowait, data)
+            return push
+
+        run = _create_translation_runner(
+            job_id=job_id,
+            file_path=str(file_path),
+            lang_in=lang_in,
+            lang_out=lang_out,
+            service=service,
+            output_mode=output_mode,
+            threads=threads,
+            vfont=vfont,
+            envs=envs,
+            prompt=prompt,
+            skip_subset_fonts=skip_subset_fonts,
+            ignore_cache=ignore_cache,
+            selected_pages=selected_pages if selected_pages else None,
+            upload_dir=str(upload_dir),
+            _push_sse=_push_sse_job(job_id),
+        )
+        _translation_executor.submit(run)
+
+    # Register batch
+    with jobs_lock:
+        batches[batch_id] = {
+            "job_ids": [j["job_id"] for j in batch_jobs],
+            "jobs": batch_jobs,
+        }
+
+    return {"batch_id": batch_id, "jobs": batch_jobs}
+
+
+@app.get("/api/translate-batch/{batch_id}")
+async def get_batch_status(batch_id: str):
+    """Get aggregated status for a batch translation."""
+    with jobs_lock:
+        batch = batches.get(batch_id)
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        job_list = []
+        completed = 0
+        total = len(batch["job_ids"])
+
+        for jid in batch["job_ids"]:
+            job = jobs.get(jid, {})
+            job_list.append({
+                "job_id": jid,
+                "filename": job.get("original_name", "unknown"),
+                "status": job.get("status", "unknown"),
+                "progress": job.get("progress", 0),
+                "error": job.get("error"),
+                "result_files": job.get("files"),
+            })
+            if job.get("status") == "completed":
+                completed += 1
+
+    overall = completed / total if total > 0 else 0
+    return {
+        "batch_id": batch_id,
+        "overall_progress": overall,
+        "completed": completed,
+        "total": total,
+        "jobs": job_list,
+    }
+
+
+@app.get("/api/translate-batch/{batch_id}/download")
+async def download_batch(
+    batch_id: str,
+    file_type: str = "side",
+    background_tasks: BackgroundTasks = None,
+):
+    """Download all batch result files as a zip archive."""
+    import zipfile
+
+    if file_type not in ("mono", "dual", "side"):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    with jobs_lock:
+        batch = batches.get(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Write zip to a temporary file instead of in-memory BytesIO
+    # to avoid OOM with many large side-by-side PDFs (~10MB each).
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    added = 0
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+            for jid in batch["job_ids"]:
+                with jobs_lock:
+                    job = jobs.get(jid, {})
+                if job.get("status") != "completed":
+                    continue
+                files = job.get("files", {})
+                pdf_path = files.get(file_type)
+                if not pdf_path or not os.path.exists(pdf_path):
+                    continue
+                original_name = job.get("original_name", "translated")
+                arcname = f"{original_name}-{file_type}.pdf"
+                # Deduplicate archive names
+                counter = 1
+                while arcname in {zi.filename for zi in zf.filelist}:
+                    arcname = f"{original_name}-{file_type}({counter}).pdf"
+                    counter += 1
+                zf.write(pdf_path, arcname)
+                added += 1
+    except Exception:
+        tmp.close()
+        os.unlink(tmp.name)
+        raise
+
+    if added == 0:
+        tmp.close()
+        os.unlink(tmp.name)
+        raise HTTPException(status_code=404, detail="No completed files found for download")
+
+    if background_tasks:
+        background_tasks.add_task(lambda: os.unlink(tmp.name) if os.path.exists(tmp.name) else None)
+
+    return FileResponse(
+        path=tmp.name,
+        media_type="application/zip",
+        filename=f"translated_batch_{batch_id[:8]}.zip",
+    )

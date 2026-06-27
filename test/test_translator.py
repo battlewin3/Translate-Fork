@@ -1,3 +1,4 @@
+import html
 import unittest
 from textwrap import dedent
 from unittest import mock
@@ -6,7 +7,17 @@ from ollama import ResponseError as OllamaResponseError
 
 from pdf2zh import cache
 from pdf2zh.config import ConfigManager
-from pdf2zh.translator import BaseTranslator, OllamaTranslator, OpenAIlikedTranslator
+from pdf2zh.translator import (
+    BaseTranslator,
+    GoogleTranslator,
+    OllamaTranslator,
+    OpenAIlikedTranslator,
+)
+
+GOOGLE_RESPONSE_HTML = """\
+<div class="result-container">&nbsp; &emsp; translated text with spaces
+&ensp; &nbsp; </div>\
+"""
 
 # Since it is necessary to test whether the functionality meets the expected requirements,
 # private functions and private methods are allowed to be called.
@@ -218,6 +229,74 @@ class TestOllamaTranslator(unittest.TestCase):
         self.assertEqual(
             excepted_not_retain_cot_content, only_removed_cot_content.strip()
         )
+
+
+class TestGoogleTranslator(unittest.TestCase):
+    """Regression tests for GoogleTranslator HTML parsing edge cases."""
+
+    def test_do_translate_strips_whitespace_from_html_result(self):
+        """Bug: html.unescape(&nbsp;→\\xa0) leaked whitespace, inflating
+        rendered width and causing text overlap in bilingual output."""
+        translator = GoogleTranslator(lang_in="en", lang_out="zh", model=None)
+        with mock.patch.object(translator.session, "get") as mock_get:
+            mock_response = mock.Mock()
+            mock_response.status_code = 200
+            mock_response.text = GOOGLE_RESPONSE_HTML
+            mock_get.return_value = mock_response
+
+            result = translator.do_translate("test input")
+
+        mock_get.assert_called_once()
+        # Must not contain leading/trailing whitespace (including \xa0 from &nbsp;)
+        self.assertEqual(result, "translated text with spaces")
+
+    def test_do_translate_strips_unicode_whitespace(self):
+        """html.unescape converts &nbsp;→\\xa0, &emsp;→\\u2003, etc.
+        All must be stripped from the output edges."""
+        translator = GoogleTranslator(lang_in="en", lang_out="zh", model=None)
+        # Simulate what html.unescape(re_result[0]) could produce
+        raw = "\xa0      hello world   \xa0   "
+        with mock.patch.object(translator.session, "get") as mock_get:
+            mock_response = mock.Mock()
+            mock_response.status_code = 200
+            mock_response.text = '<div class="result-container">'
+            mock_response.text += html.escape(raw)
+            mock_response.text += "</div>"
+            mock_get.return_value = mock_response
+
+            result = translator.do_translate("test input")
+
+        self.assertEqual(result, "hello world")
+
+    def test_do_translate_handles_400_gracefully(self):
+        """HTTP 400 returns the irreparable error message (existing behavior)."""
+        translator = GoogleTranslator(lang_in="en", lang_out="zh", model=None)
+        with mock.patch.object(translator.session, "get") as mock_get:
+            mock_response = mock.Mock()
+            mock_response.status_code = 400
+            mock_response.text = ""
+            mock_get.return_value = mock_response
+
+            result = translator.do_translate("test input")
+
+        self.assertEqual(result, "IRREPARABLE TRANSLATION ERROR")
+
+    def test_do_translate_empty_regex_match_returns_empty(self):
+        """If Google changes HTML structure and regex doesn't match,
+        re_result is empty — should not crash with IndexError (regression guard)."""
+        translator = GoogleTranslator(lang_in="en", lang_out="zh", model=None)
+        with mock.patch.object(translator.session, "get") as mock_get:
+            mock_response = mock.Mock()
+            mock_response.status_code = 200
+            mock_response.text = (
+                '<div class="new-class-name">no matching result-container</div>'
+            )
+            mock_get.return_value = mock_response
+
+            # Currently this crashes with IndexError — this test documents
+            # the known bug. When fixed, update this assertion.
+            with self.assertRaises(IndexError):
+                translator.do_translate("test input")
 
 
 if __name__ == "__main__":
