@@ -26,7 +26,7 @@ export default function TranslateButton({ onTranslate, onCancel, compact }: Tran
         <svg width={compact ? 12 : 14} height={compact ? 12 : 14} viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.5"/>
         </svg>
-        {compact ? T.cancel : T.cancel}
+        {compact ? T.cancel : (state.batchMode ? `取消 (${state.batchJobs.length})` : T.cancel)}
       </button>
     );
   }
@@ -35,13 +35,13 @@ export default function TranslateButton({ onTranslate, onCancel, compact }: Tran
     <button
       type="button"
       onClick={onTranslate}
-      disabled={isDisabled}
+      disabled={isDisabled && !state.batchMode}
       className={`bg-[var(--color-brand)] text-white font-semibold hover:opacity-90 hover:-translate-y-px hover:shadow-md active:translate-y-px active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:hover:translate-y-0 disabled:hover:shadow-none shadow-sm ${
         compact ? 'rounded-md h-8 px-4 text-xs min-w-[72px]' : 'w-full rounded-lg h-11 text-sm'
       }`}
       aria-label={T.translate}
     >
-      {compact ? T.translate : T.translate}
+      {compact ? T.translate : (state.batchMode ? `批量翻译 (${state.batchJobs.length} 个文件)` : T.translate)}
     </button>
   );
 }

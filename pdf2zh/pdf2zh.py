@@ -198,6 +198,15 @@ def create_parser() -> argparse.ArgumentParser:
         "--sse", action="store_true", help="Launch pdf2zh MCP server in SSE mode"
     )
 
+    parse_params.add_argument(
+        "--setup",
+        action="store_true",
+        help="Launch interactive service configuration wizard. "
+        "Guides you through selecting a translation service, "
+        "entering API credentials, testing connectivity, "
+        "and persisting the configuration to disk.",
+    )
+
     return parser
 
 
@@ -216,6 +225,159 @@ def parse_args(args: Optional[List[str]]) -> argparse.Namespace:
         parsed_args.pages = pages
 
     return parsed_args
+
+
+def setup_wizard() -> int:
+    """
+    Interactive configuration wizard for first-time setup.
+
+    Guides the user through:
+    1. Selecting a translation service (free or paid)
+    2. Entering API credentials (if required)
+    3. Testing connectivity
+    4. Persisting the configuration to ~/.config/PDFMathTranslate/config.json
+
+    Returns 0 on success, 1 on user abort or failure.
+    """
+    from pdf2zh.config import ConfigManager
+    from pdf2zh.translator import TranslatorRegistry
+
+    print()
+    print("=" * 56)
+    print("  PDFMathTranslate -- Service Configuration Wizard")
+    print("=" * 56)
+    print()
+
+    # Step 1: Load and display available services
+    # Trigger lazy registration
+    import pdf2zh.translator  # noqa: F401
+
+    all_svcs = TranslatorRegistry.list_all()
+
+    # Apply ENABLED_SERVICES filter
+    enabled_names = [
+        n.strip() for n in os.environ.get("ENABLED_SERVICES", "").split(",")
+        if n.strip()
+    ]
+    if enabled_names:
+        all_svcs = [s for s in all_svcs if s.name in enabled_names]
+
+    free_svcs = [s for s in all_svcs if len(s.envs) == 0]
+    paid_svcs = [s for s in all_svcs if len(s.envs) > 0]
+
+    print("Available translation services:")
+    print()
+
+    if free_svcs:
+        print("  [ Free -- no API key required ]")
+        for s in free_svcs:
+            print(f"    * {s.name}")
+        print()
+
+    if paid_svcs:
+        print("  [ Paid -- API key required, higher quality ]")
+        for s in paid_svcs:
+            env_keys = ", ".join(s.envs.keys())
+            print(f"    * {s.name:20s}  ({env_keys})")
+        print()
+
+    # Step 2: Get service name from user
+    while True:
+        choice = input("Service name (or 'q' to quit): ").strip().lower()
+        if choice in ("q", "quit", ""):
+            print("Setup cancelled.")
+            return 1
+        translator_cls = TranslatorRegistry.get(choice)
+        if translator_cls is not None:
+            break
+        print(f"  Unknown service '{choice}'. Type a name from the list above.")
+        print()
+
+    print()
+    print(f"Selected: {translator_cls.name}")
+    print()
+
+    # Step 3: Collect credentials
+    envs = {}
+    svc_envs = translator_cls.envs
+
+    if len(svc_envs) == 0:
+        print("This service requires no configuration.")
+    else:
+        print("Enter credentials (press Enter to use default, skip optional fields):")
+        print()
+        for key, default in svc_envs.items():
+            is_secret = any(
+                p in key.upper() for p in ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
+            )
+            is_url = "URL" in key.upper() or "ENDPOINT" in key.upper() or "HOST" in key.upper()
+
+            if is_secret:
+                prompt = f"  {key}"
+                if default:
+                    prompt += f" [default: {'*' * 8}]"
+                prompt += ": "
+                value = input(prompt).strip()
+                if value:
+                    envs[key] = value
+                elif default is not None:
+                    envs[key] = default
+            elif is_url:
+                prompt = f"  {key}"
+                if default:
+                    prompt += f" [default: {default}]"
+                prompt += ": "
+                value = input(prompt).strip()
+                if value:
+                    envs[key] = value
+                elif default is not None:
+                    envs[key] = default
+            else:
+                prompt = f"  {key}"
+                if default:
+                    prompt += f" [default: {default}]"
+                prompt += " (optional): "
+                value = input(prompt).strip()
+                if value:
+                    envs[key] = value
+                elif default is not None:
+                    envs[key] = default
+
+    print()
+
+    # Step 4: Test connection
+    print("Testing connection...")
+    try:
+        instance = translator_cls("en", "zh", None, envs=envs)
+        import time
+        start = time.time()
+        result = instance.do_translate("Hello")
+        elapsed = round((time.time() - start) * 1000)
+        print(f"  [OK] Success! Translated 'Hello' -> '{result}' ({elapsed}ms)")
+    except Exception as e:
+        print(f"  [FAIL] Connection test failed: {e}")
+        save_anyway = input("  Save configuration anyway? [y/N]: ").strip().lower()
+        if save_anyway != "y":
+            print("Setup cancelled.")
+            return 1
+        print("  Saving without verification...")
+
+    # Step 5: Persist
+    ConfigManager.set_translator_by_name(translator_cls.name, envs)
+    ConfigManager.set_last_used_service(translator_cls.name)
+
+    print()
+    print("=" * 56)
+    print(f"  [OK] Service '{translator_cls.name}' configured successfully!")
+    print(f"  Configuration saved to:")
+    print(f"    ~/.config/PDFMathTranslate/config.json")
+    print()
+    print("  You can now translate documents:")
+    print(f"    pdf2zh document.pdf -s {translator_cls.name}")
+    print(f"    pdf2zh document.pdf                  (uses last configured service)")
+    print("=" * 56)
+
+    return 0
 
 
 def find_all_files_in_directory(directory_path):
@@ -263,6 +425,9 @@ def main(args: Optional[List[str]] = None) -> int:
         from pdf2zh.config import ConfigManager
 
         ConfigManager.custome_config(parsed_args.config)
+
+    if parsed_args.setup:
+        return setup_wizard()
 
     if parsed_args.debug:
         log.setLevel(logging.DEBUG)

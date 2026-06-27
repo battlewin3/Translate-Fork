@@ -223,7 +223,7 @@ def translate_stream(
     prompt: Template = None,
     skip_subset_fonts: bool = False,
     ignore_cache: bool = False,
-    output_mode: str = "mono_dual",
+    output_mode: str = "side",
     **kwarg: Any,
 ):
     font_list = [("tiro", None)]
@@ -384,7 +384,7 @@ def translate(
     prompt: Template = None,
     skip_subset_fonts: bool = False,
     ignore_cache: bool = False,
-    output_mode: str = "mono_dual",
+    output_mode: str = "side",
     **kwarg: Any,
 ):
     if not files:

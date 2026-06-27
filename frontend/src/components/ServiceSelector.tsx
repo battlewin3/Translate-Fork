@@ -52,12 +52,9 @@ export default function ServiceSelector({ variant = 'full' }: ServiceSelectorPro
         break;
       case 'Enter':
         e.preventDefault();
-        setHighlightIndex((i) => {
-          if (i >= 0 && i < filtered.length) {
-            selectService(filtered[i].name);
-          }
-          return i;
-        });
+        if (highlightIndex >= 0 && highlightIndex < filtered.length) {
+          selectService(filtered[highlightIndex].name);
+        }
         break;
       case 'Escape':
         e.preventDefault();

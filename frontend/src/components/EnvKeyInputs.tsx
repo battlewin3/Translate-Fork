@@ -132,11 +132,9 @@ export default function EnvKeyInputs() {
                 {env.default && (
                   <button type="button"
                     onClick={() => {
-                      setUsingDefaults((prev) => {
-                        const next = !prev[env.key];
-                        dispatch({ type: 'SET_ENV', key: env.key, value: next ? env.default : '' });
-                        return { ...prev, [env.key]: next };
-                      });
+                      const next = !usingDefaults[env.key];
+                      dispatch({ type: 'SET_ENV', key: env.key, value: next ? env.default : '' });
+                      setUsingDefaults((prev) => ({ ...prev, [env.key]: next }));
                     }}
                     className={`px-1.5 py-0.5 text-[11px] rounded transition-colors ${
                       isUsingDefault ? 'bg-[var(--color-success-light)] text-[var(--color-success)]' : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]'

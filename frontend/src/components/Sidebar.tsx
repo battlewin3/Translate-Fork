@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useTranslation } from '../hooks/useTranslation';
+import { useBatchTranslation } from '../hooks/useBatchTranslation';
 import { useJobHistory } from '../hooks/useJobHistory';
 import { clearPreferences } from '../utils/preferences';
 import ServiceSelector from './ServiceSelector';
@@ -13,6 +14,8 @@ import AdvancedOptions from './AdvancedOptions';
 import TranslateButton from './TranslateButton';
 import ProgressIndicator from './ProgressIndicator';
 import DownloadPanel from './DownloadPanel';
+import BatchProgressList from './BatchProgressList';
+import BatchDownloadPanel from './BatchDownloadPanel';
 import CollapsibleSection from './CollapsibleSection';
 import { ErrorBanner } from './ErrorBanner';
 import { CancelConfirmDialog } from './CancelConfirmDialog';
@@ -31,18 +34,22 @@ export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { start, cancel, confirmCancel, dismissCancel, retry, cancelRequested } = useTranslation();
+  const batch = useBatchTranslation();
+  const batchMode = state.batchMode;
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
 
-  const hasFile = !!(state.file || state.url);
+  const hasFile = !!(state.file || state.url || (state.batchMode && state.batchFiles.length > 0));
   const isTranslating = state.status === 'uploading' || state.status === 'translating' || state.status === 'validating';
   const isComplete = state.status === 'completed';
 
-  const fileLabel = state.file
-    ? state.file.name
-    : state.url
-      ? (state.url.split('/').pop() || '在线文档')
-      : null;
+  const fileLabel = state.batchMode
+    ? `${state.batchFiles.length} 个文件`
+    : state.file
+      ? state.file.name
+      : state.url
+        ? (state.url.split('/').pop() || '在线文档')
+        : null;
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -86,14 +93,19 @@ export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
             </svg>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-[var(--color-brand)] truncate">{fileLabel}</p>
-              {state.file && (
+              {state.batchMode ? (
+                <p className="text-[10px] text-[var(--color-text-tertiary)]">
+                  {formatSize(state.batchFiles.reduce((sum, f) => sum + f.size, 0))}
+                </p>
+              ) : state.file ? (
                 <p className="text-[10px] text-[var(--color-text-tertiary)]">{formatSize(state.file.size)}</p>
-              )}
+              ) : null}
             </div>
             <button
               type="button"
               onClick={() => {
-                if (state.file) dispatch({ type: 'SET_INPUT_FILE', file: null });
+                if (state.batchMode) dispatch({ type: 'CLEAR_BATCH' });
+                else if (state.file) dispatch({ type: 'SET_INPUT_FILE', file: null });
                 else dispatch({ type: 'SET_INPUT_URL', url: '' });
               }}
               className="p-1 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-light)] transition-colors shrink-0"
@@ -123,13 +135,18 @@ export default function Sidebar({ onHistoryOpen, hasHistory }: SidebarProps) {
             />
 
             {/* Translate / Cancel */}
-            <TranslateButton onTranslate={start} onCancel={cancel} />
+            <TranslateButton
+              onTranslate={batchMode ? batch.start : start}
+              onCancel={batchMode ? batch.cancelAll : cancel}
+            />
 
-            {/* Progress (only when active) */}
-            {isTranslating && <ProgressIndicator />}
+            {/* Single-file progress / download */}
+            {!batchMode && isTranslating && <ProgressIndicator />}
+            {!batchMode && isComplete && <DownloadPanel />}
 
-            {/* Download (only when complete) */}
-            {isComplete && <DownloadPanel />}
+            {/* Batch progress / download */}
+            {batchMode && <BatchProgressList />}
+            {batchMode && isComplete && <BatchDownloadPanel />}
           </div>
         )}
 

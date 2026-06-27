@@ -15,16 +15,17 @@ export interface StorablePreferences {
   vfont: string;
   customPrompt: string;
   translateMode: string;
-  envs: Record<string, string>;
   fileInputType: string;
   url: string;
 }
 
-/** Whitelist of known preference keys — anything else in stored data is ignored. */
+/** Whitelist of known preference keys — anything else in stored data is ignored.
+ *  NOTE: 'envs' is deliberately excluded — API keys must never be stored in
+ *  plaintext localStorage (accessible to browser extensions and XSS). */
 const VALID_KEYS: Set<string> = new Set([
   'service', 'langFrom', 'langTo', 'outputMode', 'pageRange',
   'customPages', 'threads', 'skipSubsetFonts', 'ignoreCache',
-  'vfont', 'customPrompt', 'translateMode', 'envs',
+  'vfont', 'customPrompt', 'translateMode',
   'fileInputType', 'url',
 ]);
 
@@ -63,7 +64,6 @@ export function savePreferences(state: TranslateState): void {
       vfont: state.vfont,
       customPrompt: state.customPrompt,
       translateMode: state.translateMode,
-      envs: state.envs,
       fileInputType: state.fileInputType,
       url: state.url,
     };

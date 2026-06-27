@@ -1,73 +1,73 @@
-# React + TypeScript + Vite
+# PDFMathTranslate Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + TypeScript 6 + Vite 8 SPA for the PDFMathTranslate translation engine.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Layer | Technology |
+|-------|-----------|
+| Framework | React 19 |
+| Language | TypeScript 6 |
+| Bundler | Vite 8 (Rolldown) |
+| Styling | Tailwind CSS 4 |
+| Testing | Vitest 4 |
+| Linting | ESLint 9 |
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server proxies `/api` to `http://localhost:8000` (see `vite.config.ts`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Project Structure
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+  api/              API client (fetch + XHR with progress)
+    client.ts       All backend API calls
+  components/       React components
+    TranslateButton.tsx
+    FileDropZone.tsx      Drag-and-drop PDF/DOCX upload
+    ServiceSelector.tsx   Searchable dropdown with 25 services
+    EnvKeyInputs.tsx      API key input with show/hide toggle
+    Sidebar.tsx           Settings panel (service, language, output, advanced)
+    HistoryDrawer.tsx     Job history with download links
+    ProgressIndicator.tsx Translation progress bar
+    ...
+  hooks/            Custom hooks
+    useTranslation.ts     Translation lifecycle (upload → SSE → download)
+    useSSE.ts             Server-Sent Events client
+    useJobHistory.ts      Client-side job history persistence
+    useServiceList.ts     Fetch available services from API
+    useLanguageList.ts    Fetch supported languages from API
+  i18n/             Internationalization
+    en.ts | zh.ts         49 translation keys each
+    useT.ts                Hook returning T function
+    context.tsx            Locale context provider
+  reducers/         State management
+    translateReducer.ts   Single reducer for all translation state
+  utils/            Utilities
+    preferences.ts  localStorage persistence (NO API keys)
+  styles/           Global CSS + Tailwind
+```
+
+## Available Scripts
+
+```bash
+npm run dev        # Start dev server with HMR
+npm run build      # Production build → dist/
+npm run preview    # Preview production build
+npm test           # Run tests (Vitest)
+npm run lint       # ESLint check
+```
+
+## Architecture Notes
+
+- **State management**: Single `useReducer` + React Context — no Redux/Zustand needed for this scope
+- **i18n**: Context-based locale switching; all user-facing strings go through `useT()` hook
+- **API key security**: API keys are never persisted to localStorage; they're sent to the backend for one-time validation via `POST /api/test-service` and stored server-side in `~/.config/PDFMathTranslate/config.json` (0600 permissions)
+- **SSE progress**: Real-time translation progress via `EventSource` with automatic fallback to polling after connection failures
+- **Batch translation**: Multi-file upload via `FormData` with XHR `progress` events; results downloadable as individual files or ZIP
