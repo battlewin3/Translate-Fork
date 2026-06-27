@@ -3,6 +3,8 @@ import PDFPreview from './PDFPreview';
 import EmptyDropZone from './EmptyDropZone';
 import ProgressIndicator from './ProgressIndicator';
 import DownloadPanel from './DownloadPanel';
+import BatchProgressList from './BatchProgressList';
+import BatchDownloadPanel from './BatchDownloadPanel';
 
 interface PreviewAreaProps {
   previewUrl: string | null;
@@ -10,7 +12,7 @@ interface PreviewAreaProps {
 
 export default function PreviewArea({ previewUrl }: PreviewAreaProps) {
   const state = useTranslateState();
-  const hasInput = !!(state.file || state.url);
+  const hasInput = !!(state.file || state.url || (state.batchMode && state.batchFiles.length > 0));
   const isTranslating = state.status === 'uploading' || state.status === 'translating' || state.status === 'validating';
   const isComplete = state.status === 'completed';
 
@@ -33,7 +35,7 @@ export default function PreviewArea({ previewUrl }: PreviewAreaProps) {
             {isTranslating && (
               <div className="absolute inset-0 bg-[var(--color-surface)]/80 flex items-center justify-center p-8 animate-fade-in">
                 <div className="w-full max-w-sm">
-                  <ProgressIndicator />
+                  {state.batchMode ? <BatchProgressList /> : <ProgressIndicator />}
                 </div>
               </div>
             )}
@@ -42,7 +44,7 @@ export default function PreviewArea({ previewUrl }: PreviewAreaProps) {
             {isComplete && (
               <div className="absolute inset-0 bg-[var(--color-surface)]/80 flex items-center justify-center p-8 animate-fade-in">
                 <div className="w-full max-w-sm">
-                  <DownloadPanel />
+                  {state.batchMode ? <BatchDownloadPanel /> : <DownloadPanel />}
                 </div>
               </div>
             )}

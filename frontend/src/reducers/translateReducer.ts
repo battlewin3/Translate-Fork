@@ -3,6 +3,16 @@ export type FileInputType = 'file' | 'url';
 export type TranslateMode = 'fast' | 'precise';
 export type PageRangePreset = 'all' | 'first' | 'first5' | 'custom';
 export type JobStatus = 'idle' | 'validating' | 'uploading' | 'translating' | 'completed' | 'cancelled' | 'failed';
+export type BatchJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface BatchJob {
+  jobId: string;
+  filename: string;
+  status: BatchJobStatus;
+  progress: number;
+  error?: string;
+  resultFiles?: Record<string, string>;
+}
 
 export interface JobHistoryEntry {
   jobId: string;
@@ -45,6 +55,11 @@ export interface TranslateState {
   error: string | null;
   resultFiles: Record<string, string>;
   elapsedSeconds: number;
+  batchMode: boolean;
+  batchJobs: BatchJob[];
+  batchId: string | null;
+  batchOverallProgress: number;
+  batchFiles: File[];
 }
 
 export type TranslateAction =
@@ -76,7 +91,15 @@ export type TranslateAction =
   | { type: 'DISMISS_CANCEL' }
   | { type: 'LOAD_PREFERENCES'; preferences: Record<string, unknown> }
   | { type: 'DISMISS_ERROR' }
-  | { type: 'RESET_FORM' };
+  | { type: 'RESET_FORM' }
+  | { type: 'ADD_BATCH_FILES'; files: File[] }
+  | { type: 'REMOVE_BATCH_FILE'; index: number }
+  | { type: 'BATCH_TRANSLATE_START'; batchId: string; serverJobs: { job_id: string; filename: string; status: string }[] }
+  | { type: 'BATCH_JOB_PROGRESS'; jobId: string; progress: number; desc: string; phase?: string; phasePage?: number; phaseTotal?: number }
+  | { type: 'BATCH_JOB_COMPLETE'; jobId: string; files: Record<string, string> }
+  | { type: 'BATCH_JOB_FAILED'; jobId: string; error: string }
+  | { type: 'BATCH_ALL_COMPLETE' }
+  | { type: 'CLEAR_BATCH' };
 
 export const initialState: TranslateState = {
   file: null,
@@ -85,7 +108,7 @@ export const initialState: TranslateState = {
   service: 'google',
   langFrom: 'en',
   langTo: 'zh',
-  outputMode: 'mono',
+  outputMode: 'side',
   pageRange: 'all',
   customPages: '',
   threads: 4,
@@ -106,6 +129,11 @@ export const initialState: TranslateState = {
   error: null,
   resultFiles: {},
   elapsedSeconds: 0,
+  batchMode: false,
+  batchJobs: [],
+  batchId: null,
+  batchOverallProgress: 0,
+  batchFiles: [],
 };
 
 export function translateReducer(state: TranslateState, action: TranslateAction): TranslateState {
@@ -117,6 +145,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
         status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
         progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
         elapsedSeconds: 0, cancelRequested: false,
+        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
       };
     case 'SET_INPUT_URL':
       return {
@@ -124,6 +153,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
         status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
         progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
         elapsedSeconds: 0, cancelRequested: false,
+        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
       };
     case 'SET_INPUT_TYPE':
       return {
@@ -131,6 +161,7 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
         status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
         progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
         elapsedSeconds: 0, cancelRequested: false,
+        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
       };
     case 'SET_SERVICE':
       return { ...state, service: action.service };
@@ -206,6 +237,113 @@ export function translateReducer(state: TranslateState, action: TranslateAction)
       return { ...state, error: null };
     case 'RESET_FORM':
       return { ...initialState };
+
+    // ── Batch actions ──────────────────────────────────────────
+
+    case 'ADD_BATCH_FILES': {
+      if (action.files.length > 20) return state;
+      const newJobs: BatchJob[] = action.files.map((f, i) => ({
+        jobId: `pending_${i}_${Date.now()}`,
+        filename: f.name,
+        status: 'queued' as BatchJobStatus,
+        progress: 0,
+      }));
+      return {
+        ...state,
+        file: null, url: '', error: null,
+        batchMode: true,
+        batchJobs: newJobs,
+        batchFiles: action.files,
+        batchId: null,
+        batchOverallProgress: 0,
+      };
+    }
+
+    case 'REMOVE_BATCH_FILE': {
+      const filteredJobs = state.batchJobs.filter((_, i) => i !== action.index);
+      const filteredFiles = state.batchFiles.filter((_, i) => i !== action.index);
+      if (filteredJobs.length === 0) {
+        return {
+          ...state, batchMode: false, batchJobs: [], batchFiles: [],
+          batchId: null, batchOverallProgress: 0,
+        };
+      }
+      return { ...state, batchJobs: filteredJobs, batchFiles: filteredFiles };
+    }
+
+    case 'BATCH_TRANSLATE_START': {
+      // Map server-assigned job IDs back to batch jobs by matching on filename
+      const mappedJobs: BatchJob[] = action.serverJobs.map(sj => {
+        const existing = state.batchJobs.find(bj => bj.filename === sj.filename);
+        return {
+          jobId: sj.job_id,
+          filename: sj.filename,
+          status: 'queued' as BatchJobStatus,
+          progress: 0,
+        };
+      });
+      return {
+        ...state,
+        batchId: action.batchId,
+        batchOverallProgress: 0,
+        status: 'uploading',
+        error: null,
+        batchJobs: mappedJobs,
+      };
+    }
+
+    case 'BATCH_JOB_PROGRESS':
+      return {
+        ...state,
+        status: 'translating',
+        batchJobs: state.batchJobs.map(j =>
+          j.jobId === action.jobId
+            ? { ...j, status: 'running' as BatchJobStatus, progress: action.progress }
+            : j
+        ),
+      };
+
+    case 'BATCH_JOB_COMPLETE': {
+      const updatedJobs = state.batchJobs.map(j =>
+        j.jobId === action.jobId
+          ? { ...j, status: 'completed' as BatchJobStatus, progress: 1, resultFiles: action.files }
+          : j
+      );
+      const done = updatedJobs.filter(j => j.status === 'completed').length;
+      return {
+        ...state,
+        batchJobs: updatedJobs,
+        batchOverallProgress: updatedJobs.length > 0 ? done / updatedJobs.length : 0,
+      };
+    }
+
+    case 'BATCH_JOB_FAILED':
+      return {
+        ...state,
+        batchJobs: state.batchJobs.map(j =>
+          j.jobId === action.jobId
+            ? { ...j, status: 'failed' as BatchJobStatus, error: action.error }
+            : j
+        ),
+      };
+
+    case 'BATCH_ALL_COMPLETE':
+      return {
+        ...state,
+        status: 'completed',
+        batchOverallProgress: 1,
+      };
+
+    case 'CLEAR_BATCH':
+      return {
+        ...state,
+        batchMode: false,
+        batchJobs: [],
+        batchId: null,
+        batchOverallProgress: 0,
+        error: null,
+      };
+
     default:
       return state;
   }
