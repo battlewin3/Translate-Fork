@@ -86,13 +86,7 @@ ENABLED_SERVICES = [
 # ── Shared Helpers ──────────────────────────────────────────────────────────
 
 
-def _sanitize_error(e: Exception) -> str:
-    """Return a user-safe error message without internal paths or secrets."""
-    msg = str(e)
-    # Truncate very long messages
-    if len(msg) > 500:
-        msg = msg[:500] + "..."
-    return msg
+from pdf2zh._sanitize import sanitize_error as _sanitize_error
 
 
 def _validate_file_content(content: bytes, filename: str) -> str | None:
@@ -442,16 +436,13 @@ async def start_translation(
     # Parse page selection
     selected_pages = _parse_page_range(page_range, custom_pages)
 
-    # Enforce concurrent job limit
+    # Enforce concurrent job limit AND insert atomically to prevent TOCTOU race
+    original_name = os.path.splitext(safe_name)[0]
+    sse_queue: asyncio.Queue = asyncio.Queue()
     with jobs_lock:
         active = sum(1 for j in jobs.values() if j.get("status") in ("queued", "running"))
         if active >= MAX_JOBS:
             raise HTTPException(status_code=429, detail=f"Too many active jobs ({active}). Try again later.")
-
-    # Store job
-    original_name = os.path.splitext(safe_name)[0]
-    sse_queue: asyncio.Queue = asyncio.Queue()
-    with jobs_lock:
         jobs[job_id] = {
             "status": "queued",
             "progress": 0.0,

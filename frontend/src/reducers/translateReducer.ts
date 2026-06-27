@@ -136,33 +136,33 @@ export const initialState: TranslateState = {
   batchFiles: [],
 };
 
+/** Fields reset when a new input file/URL is selected. */
+const TRANSLATION_RESET = {
+  status: 'idle' as JobStatus,
+  jobId: null as string | null,
+  resultFiles: {} as Record<string, string>,
+  progress: 0,
+  progressDesc: '',
+  phase: '',
+  phasePage: 0,
+  phaseTotalPages: 0,
+  elapsedSeconds: 0,
+  cancelRequested: false,
+  batchMode: false as boolean,
+  batchJobs: [] as BatchJob[],
+  batchId: null as string | null,
+  batchOverallProgress: 0,
+  batchFiles: [] as File[],
+};
+
 export function translateReducer(state: TranslateState, action: TranslateAction): TranslateState {
   switch (action.type) {
     case 'SET_INPUT_FILE':
-      // Changing the input file invalidates any prior translation results
-      return {
-        ...state, file: action.file, url: '', error: null,
-        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
-        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
-        elapsedSeconds: 0, cancelRequested: false,
-        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
-      };
+      return { ...state, ...TRANSLATION_RESET, file: action.file, url: '', error: null };
     case 'SET_INPUT_URL':
-      return {
-        ...state, url: action.url, file: null, error: null,
-        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
-        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
-        elapsedSeconds: 0, cancelRequested: false,
-        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
-      };
+      return { ...state, ...TRANSLATION_RESET, url: action.url, file: null, error: null };
     case 'SET_INPUT_TYPE':
-      return {
-        ...state, fileInputType: action.inputType, file: null, url: '', error: null,
-        status: 'idle' as JobStatus, jobId: null, resultFiles: {} as Record<string, string>,
-        progress: 0, progressDesc: '', phase: '', phasePage: 0, phaseTotalPages: 0,
-        elapsedSeconds: 0, cancelRequested: false,
-        batchMode: false, batchJobs: [], batchId: null, batchOverallProgress: 0, batchFiles: [],
-      };
+      return { ...state, ...TRANSLATION_RESET, fileInputType: action.inputType, file: null, url: '', error: null };
     case 'SET_SERVICE':
       return { ...state, service: action.service };
     case 'SET_LANG_FROM':

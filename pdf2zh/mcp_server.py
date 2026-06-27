@@ -155,12 +155,7 @@ def _find_env_key(envs: dict, *categories: str) -> str | None:
     return None
 
 
-def _sanitize_error(e: Exception) -> str:
-    """Truncate exception messages to prevent information disclosure."""
-    msg = str(e)
-    if len(msg) > 500:
-        msg = msg[:500] + "..."
-    return msg
+from pdf2zh._sanitize import sanitize_error as _sanitize_error
 
 
 # ── MCP App Factory ─────────────────────────────────────────────────────────
