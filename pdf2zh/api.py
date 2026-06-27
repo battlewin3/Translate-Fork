@@ -304,6 +304,69 @@ async def health():
     return {"status": "ok", "version": __version__}
 
 
+@app.get("/api/setup-status")
+async def api_setup_status():
+    """
+    First endpoint every API consumer should call. Returns the current
+    configuration status and actionable next steps.
+
+    Mirrors the MCP get_setup_status tool for REST API consumers.
+    Use this to determine whether setup is required before translating.
+    """
+    # Respect ENABLED_SERVICES filter (same as /api/services)
+    free = [s.name for s in ENABLED_SERVICES if len(s.envs) == 0]
+    paid = [s.name for s in ENABLED_SERVICES if len(s.envs) > 0]
+
+    if ConfigManager.is_configured():
+        names = ConfigManager.get_configured_service_names()
+        last = ConfigManager.get_last_used_service()
+        # Defensive: fetch names in case config is cleared between calls
+        default_svc = last or (names[0] if names else "unknown")
+        return {
+            "configured": True,
+            "configured_services": names,
+            "last_used": last,
+            "free_services": free,
+            "paid_services": paid,
+            "next_steps": (
+                f"Ready to translate. POST to /api/translate with a PDF file "
+                f"to begin. Default service: {default_svc}. "
+                f"Use /api/test-service to verify connectivity."
+            ),
+            "api_docs_url": "/docs",
+        }
+    else:
+        # Guard against empty translator list (edge case: broken import)
+        if not free and not paid:
+            return {
+                "configured": False,
+                "configured_services": [],
+                "last_used": None,
+                "free_services": [],
+                "paid_services": [],
+                "next_steps": (
+                    "No translation services available. Check that the translation "
+                    "engine is properly installed and dependencies are loaded."
+                ),
+                "api_docs_url": "/docs",
+            }
+        return {
+            "configured": False,
+            "configured_services": [],
+            "last_used": None,
+            "free_services": free,
+            "paid_services": paid,
+            "next_steps": (
+                f"No translation service configured. "
+                f"Free services (no API key): {', '.join(free) or 'none'}. "
+                f"Paid services: {', '.join(paid)}. "
+                f"Set env vars for your chosen service (e.g. DEEPSEEK_API_KEY=sk-...) "
+                f"and call /api/test-service to verify."
+            ),
+            "api_docs_url": "/docs",
+        }
+
+
 @app.get("/api/services")
 async def list_services():
     """Return available translation services and their required env vars."""

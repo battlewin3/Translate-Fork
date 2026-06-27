@@ -99,7 +99,7 @@ def _run_translate_sync(
             )
         return mono, dual, side, ""
     except Exception as e:
-        return b"", b"", None, str(e)
+        return b"", b"", None, _sanitize_error(e)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -155,11 +155,108 @@ def _find_env_key(envs: dict, *categories: str) -> str | None:
     return None
 
 
+def _sanitize_error(e: Exception) -> str:
+    """Truncate exception messages to prevent information disclosure."""
+    msg = str(e)
+    if len(msg) > 500:
+        msg = msg[:500] + "..."
+    return msg
+
+
 # ── MCP App Factory ─────────────────────────────────────────────────────────
 
 
 def create_mcp_app() -> FastMCP:
     mcp = FastMCP("pdf2zh")
+
+    # ── Tool: get_setup_status ────────────────────────────────────────────
+    # Registered first because it is the recommended entry point for every agent.
+
+    @mcp.tool()
+    async def get_setup_status(ctx: Context) -> str:
+        """
+        First tool every agent should call. Returns the current configuration
+        status and actionable next steps.
+
+        If no service is configured yet, provides a guided setup path:
+        1. Free services available (no API key needed): google, bing
+        2. Paid services available (API key required): deepseek, openai, ...
+        3. Next step: call configure_service(service="...", api_key="...")
+
+        If services are already configured, confirms readiness and provides
+        direct translation instructions.
+
+        Returns JSON:
+        {
+          "configured": true/false,
+          "configured_services": ["deepseek"],
+          "last_used": "deepseek",
+          "free_services": ["google", "bing"],
+          "paid_services": ["deepseek", "openai", ...],
+          "next_steps": "actionable guidance string"
+        }
+        """
+        _ensure_translators_loaded()
+
+        # Respect ENABLED_SERVICES filter (same as REST /api/services)
+        enabled_names = [
+            n.strip() for n in os.environ.get("ENABLED_SERVICES", "").split(",")
+            if n.strip()
+        ]
+        all_services = _services_for_agent()
+        if enabled_names:
+            all_services = [s for s in all_services if s["name"] in enabled_names]
+        free = [s["name"] for s in all_services if s["free"]]
+        paid = [s["name"] for s in all_services if not s["free"]]
+
+        if len(all_services) == 0:
+            # Edge case: broken import, all services disabled, etc.
+            return json.dumps({
+                "configured": False,
+                "configured_services": [],
+                "last_used": None,
+                "free_services": [],
+                "paid_services": [],
+                "next_steps": (
+                    "No translation services are currently available. "
+                    "Check that dependencies are installed and ENABLED_SERVICES "
+                    "is not blocking all services."
+                ),
+            }, ensure_ascii=False)
+
+        if ConfigManager.is_configured():
+            names = ConfigManager.get_configured_service_names()
+            last = ConfigManager.get_last_used_service()
+            # Defensive: fetch in case config is cleared between calls
+            default_svc = last or (names[0] if names else "unknown")
+            return json.dumps({
+                "configured": True,
+                "configured_services": names,
+                "last_used": last,
+                "free_services": free,
+                "paid_services": paid,
+                "next_steps": (
+                    f"Ready to translate. Use translate_pdf(file='/path/to/doc.pdf') "
+                    f"to translate a document with the default service "
+                    f"({default_svc}). To change services, call "
+                    f"configure_service(service='name', api_key='...')."
+                ),
+            }, ensure_ascii=False)
+        else:
+            return json.dumps({
+                "configured": False,
+                "configured_services": [],
+                "last_used": None,
+                "free_services": free,
+                "paid_services": paid,
+                "next_steps": (
+                    f"No translation service configured. "
+                    f"Free services (no API key): {', '.join(free) or 'none'}. "
+                    f"Paid services (API key required): {', '.join(paid)}. "
+                    f"To set up: configure_service(service='<name>', api_key='<key>'). "
+                    f"For free services: configure_service(service='google')."
+                ),
+            }, ensure_ascii=False)
 
     # ── Tool: list_services ──────────────────────────────────────────────
 
@@ -239,7 +336,7 @@ def create_mcp_app() -> FastMCP:
                 "sample": result,
             }, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+            return json.dumps({"ok": False, "error": _sanitize_error(e)}, ensure_ascii=False)
 
     # ── Tool: configure_service ──────────────────────────────────────────
 
@@ -352,7 +449,7 @@ def create_mcp_app() -> FastMCP:
             return json.dumps({
                 "configured": False,
                 "service": service,
-                "error": f"Connection test failed: {e}. Please check your API key and try again.",
+                "error": f"Connection test failed: {_sanitize_error(e)}. Please check your API key and try again.",
             }, ensure_ascii=False)
 
         # Persist configuration
