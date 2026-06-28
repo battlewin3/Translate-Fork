@@ -130,12 +130,18 @@ class BaseTranslator:
         )
 
     def set_envs(self, envs):
-        # Detach from self.__class__.envs
-        # Cannot use self.envs = copy(self.__class__.envs)
-        # because if set_envs called twice, the second call will override the first call
-        self.envs = copy(self.envs)
-        if ConfigManager.get_translator_by_name(self.name):
-            self.envs = ConfigManager.get_translator_by_name(self.name)
+        # Start from class defaults (shallow copy) to ensure all expected keys exist.
+        # Previous code did a full replacement from ConfigManager, which destroyed
+        # class-level defaults for any key not present in saved config (e.g. model
+        # name when only the API key was persisted).
+        self.envs = dict(self.__class__.envs)
+        # Overlay persisted config values — only for keys that exist in class defaults
+        saved = ConfigManager.get_translator_by_name(self.name)
+        if saved:
+            for k, v in saved.items():
+                if k in self.envs:
+                    self.envs[k] = v
+        # Override with environment variables
         needUpdate = False
         for key in self.envs:
             if key in os.environ:
@@ -143,6 +149,7 @@ class BaseTranslator:
                 needUpdate = True
         if needUpdate:
             ConfigManager.set_translator_by_name(self.name, self.envs)
+        # Override with runtime envs (highest priority)
         if envs is not None:
             for key in envs:
                 self.envs[key] = envs[key]

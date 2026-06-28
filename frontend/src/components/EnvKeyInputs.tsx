@@ -2,13 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslateState } from '../hooks/useTranslateState';
 import { useTranslateDispatch } from '../hooks/useTranslateDispatch';
 import { useServiceList } from '../hooks/useServiceList';
+import { useSetupStatus } from '../hooks/useSetupStatus';
 import { getModelSuggestions } from '../utils/modelList';
 import { useT } from '../i18n/useT';
 
 function isApiKey(key: string, isApiKeyFlag: boolean): boolean {
   if (isApiKeyFlag) return true;
   const upper = key.toUpperCase();
-  return upper.includes('API_KEY') || upper.endsWith('_KEY');
+  return upper.includes('API_KEY') || upper.includes('APIKEY') || upper.endsWith('_KEY');
 }
 
 function isModelKey(key: string): boolean {
@@ -91,11 +92,20 @@ export default function EnvKeyInputs() {
   const state = useTranslateState();
   const dispatch = useTranslateDispatch();
   const { services } = useServiceList();
+  const { status: setupStatus } = useSetupStatus();
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
   const [usingDefaults, setUsingDefaults] = useState<Record<string, boolean>>({});
 
   const service = services.find((s) => s.name === state.service);
   const envs = service?.envs || [];
+
+  // Lookup backend config status for the currently selected service
+  const serviceSetup = setupStatus?.services?.find((s) => s.name === state.service);
+  const getBackendEnvStatus = (key: string): { isSet: boolean; isSensitive: boolean } => {
+    if (!serviceSetup) return { isSet: false, isSensitive: false };
+    const env = serviceSetup.envs.find((e) => e.key === key);
+    return { isSet: env?.is_set ?? false, isSensitive: env?.is_sensitive ?? false };
+  };
 
   if (envs.length === 0) return null;
 
@@ -110,11 +120,20 @@ export default function EnvKeyInputs() {
         const isVisible = visibleKeys[env.key] || false;
         const isUsingDefault = usingDefaults[env.key] || false;
         const currentValue = state.envs[env.key] ?? '';
+        const backendStatus = getBackendEnvStatus(env.key);
+        // Show "configured" badge when backend has a value but UI has no input yet
+        const showConfiguredBadge = backendStatus.isSet && !currentValue && !isUsingDefault;
 
         return (
           <div key={env.key} className="space-y-1">
-            <label htmlFor={`env-${env.key}`} className="block text-xs font-medium text-[var(--color-text-secondary)]">
-              {env.key}
+            <label htmlFor={`env-${env.key}`} className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-secondary)]">
+              <span>{env.key}</span>
+              {showConfiguredBadge && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-px text-[11px] rounded-full bg-[var(--color-success-light)] text-[var(--color-success)]">
+                  <svg width="10" height="10" viewBox="0 0 16 16"><path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>
+                  {T.envKeyConfiguredLabel || '已配置'}
+                </span>
+              )}
             </label>
             <div className="relative">
               <input
@@ -123,10 +142,10 @@ export default function EnvKeyInputs() {
                 value={isUsingDefault ? env.default : currentValue}
                 onChange={(e) => dispatch({ type: 'SET_ENV', key: env.key, value: e.target.value })}
                 disabled={isUsingDefault}
-                placeholder={isUsingDefault ? env.default : `输入 ${env.key}`}
+                placeholder={showConfiguredBadge ? (T.envKeyConfiguredPlaceholder || '已配置 (重新输入以覆盖)') : (isUsingDefault ? env.default : `输入 ${env.key}`)}
                 className={`w-full h-9 px-3 pr-16 rounded-lg border text-sm bg-[var(--color-surface-elevated)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:ring-0 focus:border-[var(--color-border-focus)] transition-colors ${
                   isUsingDefault ? 'opacity-50' : ''
-                } border-[var(--color-border)]`}
+                } ${showConfiguredBadge ? 'border-[var(--color-success)]' : 'border-[var(--color-border)]'}`}
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                 {env.default && (

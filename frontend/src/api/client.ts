@@ -16,12 +16,14 @@ export interface ServiceEnv {
   key: string;
   default: string;
   is_api_key: boolean;
+  is_configured?: boolean;  // whether a value exists in persisted backend config
 }
 
 export interface Service {
   name: string;
   envs: ServiceEnv[];
   custom_prompt: boolean;
+  is_configured?: boolean;  // whether the service has an entry in config.json
 }
 
 export interface Language {
@@ -56,6 +58,44 @@ export async function fetchLanguages(): Promise<Language[]> {
   if (!res.ok) throw new Error(`获取语言列表失败: ${res.status}`);
   const data = await res.json();
   return data.languages;
+}
+
+// ── Setup Status API ─────────────────────────────────────────────────────
+
+export interface SetupStatusServiceEnv {
+  key: string;
+  default: string;
+  is_set: boolean;
+  is_sensitive: boolean;
+  value: string | null;  // only non-null for non-sensitive keys
+}
+
+export interface SetupStatusService {
+  name: string;
+  envs: SetupStatusServiceEnv[];
+  custom_prompt: boolean;
+  is_configured: boolean;
+}
+
+export interface SetupStatus {
+  configured: boolean;
+  configured_services: string[];
+  last_used: string | null;
+  free_services: string[];
+  paid_services: string[];
+  next_steps: string;
+  services: SetupStatusService[];
+}
+
+/**
+ * Fetch the current backend configuration status.
+ * Used on app mount to determine which services are already set up
+ * and to pre-fill non-sensitive fields (model, base URL).
+ */
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const res = await fetchWithTimeout(`${API_BASE}/setup-status`);
+  if (!res.ok) throw new Error(`获取配置状态失败: ${res.status}`);
+  return res.json();
 }
 
 /**

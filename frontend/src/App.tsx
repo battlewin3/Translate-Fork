@@ -4,6 +4,7 @@ import { TranslateDispatchContext } from './context/TranslateDispatchContext';
 import { translateReducer, initialState } from './reducers/translateReducer';
 import { loadPreferences, savePreferences } from './utils/preferences';
 import { useJobHistory } from './hooks/useJobHistory';
+import { useSetupStatus } from './hooks/useSetupStatus';
 import { LocaleProvider } from './i18n/context';
 import Sidebar from './components/Sidebar';
 import Layout from './components/Layout';
@@ -20,6 +21,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
 
   const { history, clearHistory } = useJobHistory();
+  const { status: setupStatus } = useSetupStatus();
 
   // Blob URL lifecycle — create on file change, cleanup on change or unmount
   useEffect(() => {
@@ -35,17 +37,40 @@ export default function App() {
     setPreviewUrl(null);
   }, [state.file, state.fileInputType, state.url]);
 
-  // Load persisted preferences on mount, then mark ready
+  // Load persisted preferences on mount, then mark ready.
+  // Falls back to backend config (config.json) for service selection
+  // and non-sensitive env values when localStorage has no preference.
   useEffect(() => {
     const prefs = loadPreferences();
-    if (Object.keys(prefs).length > 0) {
-      dispatch({ type: 'LOAD_PREFERENCES', preferences: prefs });
+    const updates: Record<string, unknown> = {};
+
+    // If localStorage has no service preference, use backend's last_used
+    if (!prefs.service && setupStatus?.last_used) {
+      updates.service = setupStatus.last_used;
     }
+
+    if (Object.keys(prefs).length > 0 || Object.keys(updates).length > 0) {
+      dispatch({ type: 'LOAD_PREFERENCES', preferences: { ...prefs, ...updates } });
+    }
+
+    // Pre-fill non-sensitive envs (model, base URL) from backend config
+    if (setupStatus?.services) {
+      const effectiveService = (updates.service || prefs.service || 'google') as string;
+      const serviceDetail = setupStatus.services.find(s => s.name === effectiveService);
+      if (serviceDetail) {
+        for (const env of serviceDetail.envs) {
+          if (!env.is_sensitive && env.value) {
+            dispatch({ type: 'SET_ENV', key: env.key, value: env.value });
+          }
+        }
+      }
+    }
+
     // setReady triggers a re-render — save effect will only fire
     // after LOAD_PREFERENCES has been processed, preventing
     // initialState from overwriting persisted data.
     setReady(true);
-  }, []);
+  }, [setupStatus]);
 
   // Save preferences when settings change (only after ready).
   // Track the storable subset via a serialized fingerprint to avoid

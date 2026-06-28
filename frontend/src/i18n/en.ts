@@ -27,6 +27,8 @@ export const EN = {
   envKeyDefaultLabel: "Use default",
   envKeyShowLabel: "Show key",
   envKeyHideLabel: "Hide key",
+  envKeyConfiguredLabel: "Configured",
+  envKeyConfiguredPlaceholder: "Configured (re-enter to override)",
 
   // Languages
   langFromLabel: "Source Language",
