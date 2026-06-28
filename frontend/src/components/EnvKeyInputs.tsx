@@ -9,7 +9,7 @@ import { useT } from '../i18n/useT';
 function isApiKey(key: string, isApiKeyFlag: boolean): boolean {
   if (isApiKeyFlag) return true;
   const upper = key.toUpperCase();
-  return upper.includes('API_KEY') || upper.endsWith('_KEY');
+  return upper.includes('API_KEY') || upper.includes('APIKEY') || upper.endsWith('_KEY');
 }
 
 function isModelKey(key: string): boolean {

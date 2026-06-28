@@ -299,10 +299,16 @@ async def health():
 
 
 def _is_sensitive_key(key: str) -> bool:
-    """Check whether an env var key contains sensitive patterns (API keys, tokens, secrets)."""
+    """Check whether an env var key contains sensitive patterns (API keys, tokens, secrets).
+
+    Used by /api/setup-status and /api/services to gate value exposure.
+    Must cover: API_KEY, APIKEY, TOKEN, SECRET, PASSWORD, _KEY suffix.
+    Keep in sync with config.py:_SENSITIVE_PATTERNS.
+    """
     ku = key.upper()
-    return ("API_KEY" in ku or "TOKEN" in ku or "SECRET" in ku or
-            "PASSWORD" in ku or ku.endswith("_KEY"))
+    return ("API_KEY" in ku or "APIKEY" in ku or "TOKEN" in ku or
+            "SECRET" in ku or "PASSWORD" in ku or "ACCESS_KEY" in ku or
+            "AUTH_KEY" in ku or ku.endswith("_KEY"))
 
 
 def _build_services_detail() -> list:
@@ -432,11 +438,11 @@ async def list_services():
                     # SECURITY: For API keys, NEVER expose the persisted value as default.
                     # Only non-sensitive fields (model, URL) use the persisted value.
                     "default": (
-                        v  # class-level default (typically empty for API keys)
-                        if ("API_KEY" in k.upper())
+                        v  # class-level default (empty for sensitive keys)
+                        if _is_sensitive_key(k)
                         else (saved_envs.get(k) or v)  # persisted value for non-sensitive fields
                     ),
-                    "is_api_key": "API_KEY" in k.upper(),
+                    "is_api_key": _is_sensitive_key(k),
                     "is_configured": bool(saved_envs.get(k)),  # whether value exists in config
                 }
                 for k, v in svc.envs.items()

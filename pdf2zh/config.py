@@ -112,7 +112,8 @@ class ConfigManager:
         # 但 API 密钥等敏感信息不写入磁盘明文持久化
         if key in os.environ:
             value = os.environ[key]
-            _SENSITIVE_PATTERNS = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY")
+            # Keep in sync with api.py:_is_sensitive_key()
+            _SENSITIVE_PATTERNS = ("API_KEY", "APIKEY", "TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY")
             if not any(pat in key.upper() for pat in _SENSITIVE_PATTERNS):
                 instance._config_data[key] = value
                 instance._save_config()
