@@ -27,6 +27,8 @@ export const T = {
   envKeyDefaultLabel: "使用默认值",
   envKeyShowLabel: "显示密钥",
   envKeyHideLabel: "隐藏密钥",
+  envKeyConfiguredLabel: "已配置",
+  envKeyConfiguredPlaceholder: "已配置 (重新输入以覆盖)",
 
   // Languages
   langFromLabel: "源语言",

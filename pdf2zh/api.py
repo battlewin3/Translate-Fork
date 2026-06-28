@@ -298,6 +298,47 @@ async def health():
     return {"status": "ok", "version": __version__}
 
 
+def _is_sensitive_key(key: str) -> bool:
+    """Check whether an env var key contains sensitive patterns (API keys, tokens, secrets)."""
+    ku = key.upper()
+    return ("API_KEY" in ku or "TOKEN" in ku or "SECRET" in ku or
+            "PASSWORD" in ku or ku.endswith("_KEY"))
+
+
+def _build_services_detail() -> list:
+    """Build per-service detail including env key status for the frontend.
+
+    For each service, returns its envs with:
+    - is_set: whether a value exists in persisted config
+    - is_sensitive: whether the key is an API key / token / secret
+    - value: non-sensitive persisted value (None for sensitive keys)
+    - is_configured: whether this service has any entry in config.json
+    """
+    configured_names = ConfigManager.get_configured_service_names()
+    services_detail = []
+    for svc in ENABLED_SERVICES:
+        saved_envs = ConfigManager.get_translator_by_name(svc.name) or {}
+        envs_detail = []
+        for k, default_val in svc.envs.items():
+            is_sensitive = _is_sensitive_key(k)
+            has_value = k in saved_envs and bool(saved_envs[k])
+            envs_detail.append({
+                "key": k,
+                "default": default_val,
+                "is_set": has_value,
+                "is_sensitive": is_sensitive,
+                # Only expose non-sensitive configured values to the frontend
+                "value": saved_envs.get(k) if (has_value and not is_sensitive) else None,
+            })
+        services_detail.append({
+            "name": svc.name,
+            "envs": envs_detail,
+            "custom_prompt": svc.CustomPrompt if hasattr(svc, "CustomPrompt") else False,
+            "is_configured": configured_names is not None and svc.name in configured_names,
+        })
+    return services_detail
+
+
 @app.get("/api/setup-status")
 async def api_setup_status():
     """
@@ -306,10 +347,16 @@ async def api_setup_status():
 
     Mirrors the MCP get_setup_status tool for REST API consumers.
     Use this to determine whether setup is required before translating.
+
+    Includes per-service env status so the frontend can:
+    - Show which services are already configured
+    - Pre-fill non-sensitive fields (model, base URL)
+    - Display "configured" badges for API keys without exposing values
     """
     # Respect ENABLED_SERVICES filter (same as /api/services)
     free = [s.name for s in ENABLED_SERVICES if len(s.envs) == 0]
     paid = [s.name for s in ENABLED_SERVICES if len(s.envs) > 0]
+    services_detail = _build_services_detail()
 
     if ConfigManager.is_configured():
         names = ConfigManager.get_configured_service_names()
@@ -322,6 +369,7 @@ async def api_setup_status():
             "last_used": last,
             "free_services": free,
             "paid_services": paid,
+            "services": services_detail,
             "next_steps": (
                 f"Ready to translate. POST to /api/translate with a PDF file "
                 f"to begin. Default service: {default_svc}. "
@@ -338,6 +386,7 @@ async def api_setup_status():
                 "last_used": None,
                 "free_services": [],
                 "paid_services": [],
+                "services": services_detail,
                 "next_steps": (
                     "No translation services available. Check that the translation "
                     "engine is properly installed and dependencies are loaded."
@@ -350,6 +399,7 @@ async def api_setup_status():
             "last_used": None,
             "free_services": free,
             "paid_services": paid,
+            "services": services_detail,
             "next_steps": (
                 f"No translation service configured. "
                 f"Free services (no API key): {', '.join(free) or 'none'}. "
@@ -363,16 +413,36 @@ async def api_setup_status():
 
 @app.get("/api/services")
 async def list_services():
-    """Return available translation services and their required env vars."""
+    """Return available translation services and their required env vars.
+
+    Merges persisted config values from config.json:
+    - For non-sensitive envs (model, URL): uses persisted value as default
+    - For sensitive envs (API keys, tokens): adds is_configured flag
+    - Adds per-service is_configured flag
+    """
+    configured_names = ConfigManager.get_configured_service_names()
     result = []
     for svc in ENABLED_SERVICES:
+        saved_envs = ConfigManager.get_translator_by_name(svc.name) or {}
         result.append({
             "name": svc.name,
             "envs": [
-                {"key": k, "default": v, "is_api_key": "API_KEY" in k.upper()}
+                {
+                    "key": k,
+                    # SECURITY: For API keys, NEVER expose the persisted value as default.
+                    # Only non-sensitive fields (model, URL) use the persisted value.
+                    "default": (
+                        v  # class-level default (typically empty for API keys)
+                        if ("API_KEY" in k.upper())
+                        else (saved_envs.get(k) or v)  # persisted value for non-sensitive fields
+                    ),
+                    "is_api_key": "API_KEY" in k.upper(),
+                    "is_configured": bool(saved_envs.get(k)),  # whether value exists in config
+                }
                 for k, v in svc.envs.items()
             ],
             "custom_prompt": svc.CustomPrompt if hasattr(svc, "CustomPrompt") else False,
+            "is_configured": configured_names is not None and svc.name in configured_names,
         })
     return {"services": result}
 
